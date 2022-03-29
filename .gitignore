@@ -1,5 +1,6 @@
-# legacy code
-profile_binr/_R/PROFILE_source_sequential.R
+
+# Manual ignore tags.
+**/ignore_*
 
 # data directories :
 data
