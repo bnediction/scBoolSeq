@@ -20,6 +20,7 @@ import string
 import math
 
 import multiprocessing
+from functools import partial
 
 # rpy2 conversion
 import rpy2.robjects as r_objs
@@ -35,6 +36,7 @@ import pandas as pd
 
 # local imports
 from .simulation import biased_simulation_from_binary_state, _RandType
+from .binarization import binarize as new_binarize
 
 # R source code locations :
 __SCBOOLSEQ_DIR__ = Path(__file__).resolve().parent.joinpath("_R")
@@ -140,7 +142,7 @@ class scBoolSeq(object):
 
         # try loading all packages and functions, installing them upon failure
         try:
-            with open(__SCBOOLSEQ_SRC__, "r") as _scbsq_source:
+            with open(__SCBOOLSEQ_SRC__, "r", encoding="utf-8") as _scbsq_source:
                 self.r("".join(_scbsq_source.readlines()))
         except RRuntimeError:
             print("\nERROR : one or more R dependencies are not installed")
@@ -222,25 +224,45 @@ class scBoolSeq(object):
             raise RRuntimeError(str(_rer)) from None
             # change this to display R's original error ?
 
-    # TODO: verify the function's docstring
     def fit(
         self,
         n_threads: int = multiprocessing.cpu_count(),
         dor_threshold: float = 0.95,
-        mask_zero_entries: bool = False,
         unimodal_margin_quantile: float = 0.25,
+        mask_zero_entries: bool = False,
     ) -> "scBoolSeq":
         """
         Compute the criteria needed to decide which binarization rule
         will be applied to each gene. This is performed by calling
         the corresponding R function `compute_criteria()` via rpy2.
 
-        Arguments :
-            n_threads : The number of parallel processes (threads) to be used.
-             log_time : Should the call to the R function be timed ?
-              logfile : The file in which logs should be saved.
+        Arguments:
+        ---------
 
-        Returns :
+            * n_threads: The number of parallel processes (threads) to be used.
+
+            * dor_threshold: The DropOut Rate (percentage of zero entries) after which
+                             genes should be discarded. For example `dor_threshold = 0.5`
+                             will discard genes having a DropOut Rate > 50%. This means
+                             that binarisation and synthetic generation for this gene will
+                             not occur.
+
+            * unimodal_margin_quantile:
+                            Binarisation of "Unimodal" and "ZeroInflated" genes is quantile-based.
+                            This parameter is needed to compute the binarisation thresholds:
+
+                                threshold_true = quantile(gene, 1 - unimodal_margin_quantile) + \alpha * IQR
+                                threshold_false = quantile(gene, unimodal_margin_quantile) - \alpha * IQR
+
+            * mask_zero_entries: Wether zero entries should be ignored while estimating the criteria.
+                                 Setting it to True is discouraged. This parameter is really needed 
+                                 to calculate the simulation criteria, but it was included in this method
+                                 to have a uniform API. 
+
+
+
+        Returns:
+        -------
             self (a reference to the object itself). This is done
             so that the criteria can be directly accessed, or other
             methods can be called. Examples :
@@ -255,17 +277,16 @@ class scBoolSeq(object):
         It is accessible via :
         >>> self.criteria
 
-        IMPORTANT : `compute_criteria()` uses descriptors and memory
-        mappings, which are temporarily stored in files containing the
+        IMPORTANT : This function calls R code which uses descriptors and memory
+        mappings which are temporarily stored in files containing the
         current datetime and a small hash to ensure the unicity of names.
 
         Do not manipulate or erase files which look like this:
-            Wed Apr 14 13:47:21 2021 MFNVP2486W.bin
-            Wed Apr 14 13:47:21 2021 MFNVP2486W.desc
+            SCBOOLSEQ_backing_file_DFNPO6252Q_Wed Mar 30 16:53:00 2022.bin
+            SCBOOLSEQ_backing_file_DFNPO6252Q_Wed Mar 30 16:53:00 2022.desc
 
         They will be automatically removed one the criteria is calculated
         for all genes in the dataset.
-
         """
         if unimodal_margin_quantile > 0.5:
             raise ValueError(
@@ -311,8 +332,8 @@ class scBoolSeq(object):
         self,
         n_threads: int = multiprocessing.cpu_count(),
         dor_threshold: float = 0.95,
-        mask_zero_entries: bool = True,
         unimodal_margin_quantile: float = 0.25,
+        mask_zero_entries: bool = True,
     ) -> "scBoolSeq":
         """Re compute criteria for genes classified as zero-inflated,
         in order to better estimate simulation parameters."""
@@ -451,6 +472,62 @@ class scBoolSeq(object):
         finally:
             if _rm_df:
                 _ = self.r(f"rm({_df_name})")
+    
+
+    def new_py_binarize(
+        self,
+        data: Optional[pd.DataFrame] = None,
+        alpha: float = 1.0,
+        n_threads: int = multiprocessing.cpu_count(),
+        include_discarded: bool = False,
+    ):
+        """ """
+        if not self._is_trained:
+            raise AttributeError(
+                "Cannot binarize without the criteria DataFrame. Call self.fit() first."
+            )
+
+        data = data or self.data.copy(deep=True)
+        self._alpha = alpha
+
+        # verify binarised genes are contained in the simulation criteria index
+        if not all(gene in self.criteria.index for gene in data.columns):
+            raise ValueError(
+                "'data' contains genes for which there is no simulation criterion."
+            )
+
+        # The following check may be unnecessary as we are using self.criteria,
+        # which by construction can only yield valid criteria.
+        # What if the user tampered with the criteria ?
+        if not all(
+            category in self._valid_categories for category in self.criteria.Category
+        ):
+            raise ValueError(
+                "\n".join(
+                    [
+                        "Corrupted criteria DataFrame,",
+                        f"The set of categories : {self.criteria.Category.unique()}"
+                        "is not a subset of",
+                        f"the set of valid categories : {self._valid_categories}",
+                    ]
+                )
+            )
+
+        _binary_ls = np.array_split(data, n_threads, axis=1)
+        _partial_binarize = partial(new_binarize, self.criteria, self._alpha)
+        with multiprocessing.Pool(n_threads) as pool:
+            ret_list = pool.map(_partial_binarize, _binary_ls)
+
+        result = pd.concat(ret_list, axis=1)
+        result = (
+            result
+            if include_discarded
+            else result.loc[
+                :, self.criteria[self.criteria.Category != "Discarded"].index
+            ]
+        )
+
+        return result
 
     def py_binarize(
         self,

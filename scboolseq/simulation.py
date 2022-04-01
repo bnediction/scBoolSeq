@@ -1,18 +1,23 @@
 """
-    Module to simulate genes from learnt criteria
-    and/or sample their distribution.
+    Module to simulate gene expression count data
+    from learnt criteria.
 """
 import warnings
 import functools
 import multiprocessing as mp
 
-from typing import Tuple, Callable, List, Optional, Union
+from typing import Tuple, Callable, List, Optional, Union, Iterable, Dict, Iterator
 
 import scipy.stats as ss
 import numpy as np
 import pandas as pd
 
+# Typing alias
+RandomWalkGenerator = Union[Iterator[Dict[str, int]], List[Dict[str, int]]]
+SampleCountSpec = Union[int, range, Iterable[int]]
 _RandType = Union[np.random.Generator, int]
+
+# module-wide numpy random number generator instance
 _GLOBAL_RNG = np.random.default_rng()
 
 
@@ -536,3 +541,130 @@ def biased_simulation_from_binary_state(
         )
 
     return pd.concat(ret_list, axis=1)
+
+
+def simulate_from_boolean_trajectory(
+    boolean_trajectory_df: pd.DataFrame,
+    criteria_df: pd.DataFrame,
+    n_samples_per_state: SampleCountSpec = 300,
+    rng_seed: Optional[int] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Generate `n_samples_per_state`, for each one of the
+    states found in `boolean_trajectory_df`.
+    The biased simulation from the binary state is performed
+    according to `criteria_df`.
+
+    Parameter `n_samples_per_state` is of type SampleCountSpec,
+    defined as :
+    >>> SampleCountSpec = Union[int, range, Iterable[int]]
+    The behaviour changes depending on the type.
+    * If an int is given, all states of the boolean trajectory will
+      be sampled `n_samples_per_state` times.
+    * If a range is given, a random number of samples (within the range)
+      will be created for each observation.
+    * If a list is given
+
+
+    If specified, parameter `rng_seed` allows 100% reproductible results,
+    which means that given the same set of parameters with the given seed
+    will always produce the same pseudo random values.
+
+    The aim of this function is generating synthetic data to be
+    used as an input to STREAM, in order to evaluate the performance
+    of the PROFILE-based simulation method we have developped.
+
+    Returns
+    -------
+        A tuple : (simulated_expression_dataframe, metadata)
+
+    """
+    # for all runs to obtain the same results the seeds of each run should be fixed
+    _rng = np.random.default_rng(rng_seed)
+    _simulation_seeds = _rng.integers(
+        123, rng_seed, size=len(boolean_trajectory_df.index)
+    )
+    _n_states = len(boolean_trajectory_df.index)
+
+    # multiple dispatch for n_samples_per_state
+    if isinstance(n_samples_per_state, int):
+        sample_sizes = [n_samples_per_state] * _n_states
+    elif isinstance(n_samples_per_state, range):
+        sample_sizes = _rng.integers(
+            n_samples_per_state.start,
+            n_samples_per_state.stop,
+            size=len(boolean_trajectory_df.index),
+        )
+    elif isinstance(n_samples_per_state, Iterable):
+        sample_sizes = list(n_samples_per_state)
+        # check we have enough sample sizes for each one of the observed states
+        if not len(sample_sizes) == _n_states:
+            raise ValueError(
+                " ".join(
+                    [
+                        "`n_samples_per_state` should contain",
+                        f"exactly {_n_states} entries, received {len(sample_sizes)}",
+                    ]
+                )
+            )
+    else:
+        raise TypeError(
+            f"Invalid type `{type(n_samples_per_state)}` for parameter n_samples_per_state"
+        )
+
+    # generate synthetic samples
+    synthetic_samples = []
+    for size, rnd_walk_step, _rng_seed in zip(
+        sample_sizes, boolean_trajectory_df.iterrows(), _simulation_seeds
+    ):
+        _idx, binary_state = rnd_walk_step
+
+        synthetic_samples.append(
+            biased_simulation_from_binary_state(
+                binary_state.to_frame().T,
+                criteria_df,
+                n_samples=size,
+                seed=_rng_seed,
+            )
+            .reset_index()
+            .rename(columns={"index": "kind"})
+        )
+
+    # merge all experiments into a single frame
+    synthetic_single_cell_experiment = pd.concat(
+        synthetic_samples, axis="rows", ignore_index=True
+    )
+
+    # create an informative, artificial, and unique index
+    synthetic_single_cell_experiment = synthetic_single_cell_experiment.set_index(
+        synthetic_single_cell_experiment.kind
+        + "_"
+        + synthetic_single_cell_experiment.reset_index().index.map(
+            lambda x: f"obs{str(x)}"
+        )
+    )
+
+
+    # Create a colour map for different cell types
+    _RGB_values = list("0123456789ABCDEF")
+    color_map = {
+        i: "#" + "".join([_rng.choice(_RGB_values) for j in range(6)])
+        for i in boolean_trajectory_df.index.unique().to_list()
+    }
+
+    # Create a metadata frame
+    cell_colours = (
+        synthetic_single_cell_experiment.kind.apply(lambda x: color_map[x])
+        .to_frame()
+        .rename(columns={"kind": "label_color"})
+    )
+    metadata = pd.concat(
+        [synthetic_single_cell_experiment.kind, cell_colours], axis="columns"
+    )
+    metadata = metadata.rename(columns={"kind": "label"})
+    # drop the number of activated genes from the synthetic expression frame
+    synthetic_single_cell_experiment = synthetic_single_cell_experiment[
+        synthetic_single_cell_experiment.columns[1:]
+    ]
+
+    return synthetic_single_cell_experiment, metadata
