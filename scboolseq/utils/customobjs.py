@@ -57,11 +57,11 @@ class Path(_Path_):
 
 
 class WindowsPath(_WindowsPath_, Path):
-    """ Helper for Path, not to be directly initialized. """
+    """Helper for Path, not to be directly initialized."""
 
 
 class PosixPath(_PosixPath_, Path):
-    """ Helper for Path, not to be directly initialized. """
+    """Helper for Path, not to be directly initialized."""
 
 
 class ObjDict(dict):

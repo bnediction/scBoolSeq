@@ -133,7 +133,7 @@ def _sim_bimodal(
 def _dropout_mask(
     dropout_rate: float, size: int, rng: Optional[_RandType] = None
 ) -> np.ndarray:
-    """ Dropout mask to obtain the same dropout_rate as originally estimated"""
+    """Dropout mask to obtain the same dropout_rate as originally estimated"""
     rng = rng or _GLOBAL_RNG
     rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
     return rng.choice(
@@ -206,7 +206,7 @@ def _sample_sequential(
     enforce_dropout_rate: bool = True,
     rng: Optional[_RandType] = None,
 ) -> pd.DataFrame:
-    """ Simulate samples from a criteria dataframe, sequentially """
+    """Simulate samples from a criteria dataframe, sequentially"""
     rng = rng or _GLOBAL_RNG
     rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
     return (
@@ -498,7 +498,7 @@ def _simulate_subset(
     simulation_criteria: pd.DataFrame,
     rng: Optional[_RandType] = None,
 ) -> pd.Series:
-    """ helper function, wrapper for apply """
+    """helper function, wrapper for apply"""
     rng = rng or _GLOBAL_RNG
     rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
     return binary_df.apply(
@@ -643,7 +643,6 @@ def simulate_from_boolean_trajectory(
             lambda x: f"obs{str(x)}"
         )
     )
-
 
     # Create a colour map for different cell types
     _RGB_values = list("0123456789ABCDEF")

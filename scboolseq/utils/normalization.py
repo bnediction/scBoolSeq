@@ -13,6 +13,7 @@ import pandas as pd
 
 from typing import Optional
 
+
 def normalize(raw_counts: pd.DataFrame, method: Optional[str] = None) -> pd.DataFrame:
     """
     Normalize count matrix.
@@ -56,7 +57,7 @@ def normalize(raw_counts: pd.DataFrame, method: Optional[str] = None) -> pd.Data
 
 
 def normalise(*args, **kwargs) -> pd.DataFrame:
-    """ alias for normalize. See help(normalize) """
+    """alias for normalize. See help(normalize)"""
     return normalize(*args, **kwargs)
 
 
@@ -113,5 +114,5 @@ def log_normalize(
 
 
 def log_normalise(*args, **kwargs) -> pd.DataFrame:
-    """ alias for log_normalize. See help(log_normalize) """
+    """alias for log_normalize. See help(log_normalize)"""
     return log_normalize(*args, **kwargs)

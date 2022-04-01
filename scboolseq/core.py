@@ -1,17 +1,13 @@
 """
-    scBoolSeq: scRNA-Seq data binarisation and synthetic generation from Boolean dynamics.
+    scBoolSeq: scRNA-Seq data binarization and synthetic generation from Boolean dynamics.
 
     author: "Gustavo Magaña López"
-    credits:"BNeDiction; Institut Curie"
+    credits: "BNeDiction; Institut Curie"
 """
-
-# TODO: rename methods :
-#   * binarize -> r_binarize
-#   * py_binarize -> binarize
 
 __all__ = ["scBoolSeq"]
 
-from typing import NoReturn, Any, Dict, Optional, Union
+from typing import NoReturn, Any, Optional, Union
 from pathlib import Path
 import logging
 
@@ -35,8 +31,8 @@ import numpy as np
 import pandas as pd
 
 # local imports
-from .simulation import biased_simulation_from_binary_state, _RandType
-from .binarization import binarize as new_binarize
+from .simulation import biased_simulation_from_binary_state
+from .binarization import _binarize as new_binarize
 
 # R source code locations :
 __SCBOOLSEQ_DIR__ = Path(__file__).resolve().parent.joinpath("_R")
@@ -96,10 +92,10 @@ class scBoolSeq(object):
         return "NULL"
 
     @staticmethod
-    def _random_string(n: int = 10) -> str:
-        """ Return a random string og length `n` containing ascii lowercase letters and digits. """
+    def _random_string(length: int = 10) -> str:
+        """Return a random string og length `n` containing ascii lowercase letters and digits."""
         return "".join(
-            random.choice(string.ascii_lowercase + string.digits) for i in range(n)
+            random.choice(string.ascii_lowercase + string.digits) for i in range(length)
         )
 
     @staticmethod
@@ -133,12 +129,6 @@ class scBoolSeq(object):
         self._unimodal_margin_quantile: float
         self._dor_threshold: float
         self._alpha: float
-        self._binary_func_by_category = {
-            "ZeroInf": self._binarize_unimodal_and_zeroinf,
-            "Unimodal": self._binarize_unimodal_and_zeroinf,
-            "Bimodal": self._binarize_bimodal,
-            "Discarded": self._binarize_discarded,
-        }
 
         # try loading all packages and functions, installing them upon failure
         try:
@@ -149,12 +139,12 @@ class scBoolSeq(object):
             print("Trying to automatically satisfy missing dependencies\n")
             try:
                 # install dependencies :
-                with open(__SCBOOLSEQ_BOOTSTRAP__, "r") as f:
+                with open(__SCBOOLSEQ_BOOTSTRAP__, "r", encoding="utf-8") as f:
                     self.r("".join(f.readlines()))
                 print("\n Missing dependencies successfully installed \n")
                 # re-import the R source as functions were not saved because
                 # of the previous RRuntimeError
-                with open(__SCBOOLSEQ_SRC__, "r") as f:
+                with open(__SCBOOLSEQ_SRC__, "r", encoding="utf-8") as f:
                     self.r("".join(f.readlines()))
             except RRuntimeError as _rer:
                 print("Bootstrapping the installation of R dependencies failed:")
@@ -164,6 +154,19 @@ class scBoolSeq(object):
         if not isinstance(data, pd.DataFrame):
             raise TypeError(
                 f"Parameter 'data' must be of type 'pandas.DataFrame' not {type(data)}"
+            )
+        _na_count = data.isna().sum().sum()
+        if _na_count:
+            raise ValueError(
+                " ".join(
+                    [
+                        f"Parameter data has {_na_count} NaN entries",
+                        "this will cause undefined beheviour when computing",
+                        "the criteria on the R backend."
+                        "Please verify that all entries of your dataframe",
+                        "are valid numerical entries.",
+                    ]
+                )
             )
         self._data: pd.DataFrame = data
 
@@ -181,22 +184,22 @@ class scBoolSeq(object):
         )
 
     def r_ls(self):
-        """ Return a list containing all the names in the main R environment. """
+        """Return a list containing all the names in the main R environment."""
         return list(self.r("ls()"))
 
     @property
     def _is_trained(self) -> bool:
-        """ Boolean indicating if the instance can be used to binarize expression."""
+        """Boolean indicating if the instance can be used to binarize expression."""
         return hasattr(self, "_criteria")
 
     @property
     def _can_simulate(self) -> bool:
-        """ Boolean indicating if the instance can be used to simulate expression."""
+        """Boolean indicating if the instance can be used to simulate expression."""
         return hasattr(self, "_simulation_criteria")
 
     @property
     def _data_in_r(self) -> bool:
-        """ Determine if the data to fit the criteria is present in the R environment. """
+        """Determine if the data to fit the criteria is present in the R environment."""
         return f"META_RNA_{self._addr}" in self.r_ls()
 
     def r_instantiate_data(
@@ -248,16 +251,16 @@ class scBoolSeq(object):
                              not occur.
 
             * unimodal_margin_quantile:
-                            Binarisation of "Unimodal" and "ZeroInflated" genes is quantile-based.
-                            This parameter is needed to compute the binarisation thresholds:
+                    Binarisation of "Unimodal" and "ZeroInflated" genes is quantile-based.
+                    This parameter is needed to compute the binarisation thresholds:
 
-                                threshold_true = quantile(gene, 1 - unimodal_margin_quantile) + \alpha * IQR
-                                threshold_false = quantile(gene, unimodal_margin_quantile) - \alpha * IQR
+                        threshold_true = quantile(gene, 1 - unimodal_margin_quantile) + \alpha * IQR
+                        threshold_false = quantile(gene, unimodal_margin_quantile) - \alpha * IQR
 
             * mask_zero_entries: Wether zero entries should be ignored while estimating the criteria.
-                                 Setting it to True is discouraged. This parameter is really needed 
-                                 to calculate the simulation criteria, but it was included in this method
-                                 to have a uniform API. 
+                         Setting it to True is discouraged. This parameter is really needed
+                         to calculate the simulation criteria, but it was included in this method
+                         to have a uniform API.
 
 
 
@@ -472,9 +475,8 @@ class scBoolSeq(object):
         finally:
             if _rm_df:
                 _ = self.r(f"rm({_df_name})")
-    
 
-    def new_py_binarize(
+    def binarize(
         self,
         data: Optional[pd.DataFrame] = None,
         alpha: float = 1.0,
@@ -529,103 +531,15 @@ class scBoolSeq(object):
 
         return result
 
-    def py_binarize(
-        self,
-        data: Optional[pd.DataFrame] = None,
-        alpha: float = 1.0,
-        n_threads: int = multiprocessing.cpu_count(),
-        include_discarded: bool = False,
-    ):
-        """ """
-        if not self._is_trained:
-            raise AttributeError(
-                "Cannot binarize without the criteria DataFrame. Call self.fit() first."
-            )
-
-        data = data or self.data.copy(deep=True)
-        self._alpha = alpha
-
-        # verify binarised genes are contained in the simulation criteria index
-        if not all(gene in self.criteria.index for gene in data.columns):
-            raise ValueError(
-                "'data' contains genes for which there is no simulation criterion."
-            )
-
-        # The following check may be unnecessary as we are using self.criteria,
-        # which by construction can only yield valid criteria.
-        # What if the user tampered with the criteria ?
-        if not all(
-            category in self._valid_categories for category in self.criteria.Category
-        ):
-            raise ValueError(
-                "\n".join(
-                    [
-                        "Corrupted criteria DataFrame,",
-                        f"The set of categories : {self.criteria.Category.unique()}"
-                        "is not a subset of",
-                        f"the set of valid categories : {self._valid_categories}",
-                    ]
-                )
-            )
-
-        _binary_ls = np.array_split(data, n_threads, axis=1)
-        with multiprocessing.Pool(n_threads) as pool:
-            ret_list = pool.map(self._binarize_subset, _binary_ls)
-
-        result = pd.concat(ret_list, axis=1)
-        result = (
-            result
-            if include_discarded
-            else result.loc[
-                :, self.criteria[self.criteria.Category != "Discarded"].index
-            ]
-        )
-
-        return result
-
-    def _binarize_discarded(self, gene: pd.Series):
-        """ """
-        return pd.Series(np.nan, index=gene.index)
-
-    def _binarize_bimodal(self, gene: pd.Series):
-        """ """
-        _binary_gene = pd.Series(np.nan, index=gene.index)
-        _criterion = self.criteria.loc[gene.name, :]
-        bim_thresh_up = _criterion["bim_thresh_up"]
-        bim_thresh_down = _criterion["bim_thresh_down"]
-        _binary_gene[gene >= bim_thresh_up] = 1.0
-        _binary_gene[gene <= bim_thresh_down] = 0.0
-        return _binary_gene
-
-    def _binarize_unimodal_and_zeroinf(self, gene: pd.Series):
-        """ """
-        _binary_gene = pd.Series(np.nan, index=gene.index)
-        _criterion = self.criteria.loc[gene.name, :]
-        unim_thresh_up = (
-            _criterion["unimodal_high_quantile"] + self._alpha * _criterion["IQR"]
-        )
-        unim_thresh_down = (
-            _criterion["unimodal_low_quantile"] - self._alpha * _criterion["IQR"]
-        )
-        _binary_gene[gene > unim_thresh_up] = 1.0
-        _binary_gene[gene < unim_thresh_down] = 0.0
-        return _binary_gene
-
-    def _binarize_gene(self, gene: pd.Series):
-        """ """
-        return self._binary_func_by_category[self.criteria.loc[gene.name, "Category"]](
-            gene
-        )
-
-    def _binarize_subset(self, data: pd.DataFrame):
-        """ """
-        return data.apply(self._binarize_gene)
-
-    def binarize(
+    def r_binarize(
         self, data: Optional[pd.DataFrame] = None, gene: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Binarize expression data.
+
+        NOTICE: Legacy function. This version has no option to parametrize the
+                binarization threshold.
+
 
         Parameters:
             data: a (optional) pandas.DataFrame containing genes as columns and rows as measurements
@@ -637,14 +551,14 @@ class scBoolSeq(object):
         return self._binarize_or_normalize("binarize", data, gene)
 
     def binarise(self, *args, **kwargs) -> pd.DataFrame:
-        """ alias for self.binarize. See help(scBoolSeq.binarize) """
+        """alias for self.binarize. See help(scBoolSeq.binarize)"""
         return self.binarize(*args, **kwargs)
 
-    def normalise(self, *args, **kwargs) -> pd.DataFrame:
-        """ alias for self.normalize. See help(scBoolSeq.normalize) """
-        return self.normalize(*args, **kwargs)
+    def r_normalise(self, *args, **kwargs) -> pd.DataFrame:
+        """alias for self.normalize. See help(scBoolSeq.normalize)"""
+        return self.r_normalize(*args, **kwargs)
 
-    def normalize(
+    def r_normalize(
         self, data: Optional[pd.DataFrame] = None, gene: Optional[str] = None
     ) -> pd.DataFrame:
         """
@@ -662,7 +576,7 @@ class scBoolSeq(object):
     def simulate(
         self, binary_df, n_threads: Optional[int] = None, seed: Optional[int] = None
     ):
-        """ wrapper for profile_binr.simulation.biased_simulation_from_binary_state"""
+        """wrapper for profile_binr.simulation.biased_simulation_from_binary_state"""
         if not self._can_simulate:
             raise AttributeError("Call .simulation_fit() first")
         n_threads = (
@@ -675,9 +589,6 @@ class scBoolSeq(object):
         return biased_simulation_from_binary_state(
             binary_df, self.simulation_criteria, n_threads=n_threads, seed=seed
         )
-
-    # removed `def plot_zeroinf_diagnostics()`
-    # last commit having it : 04cdb00b2c26ed1229979d7587559b576bb72ddc
 
     @property
     def data(self) -> pd.DataFrame:
@@ -695,7 +606,7 @@ class scBoolSeq(object):
 
     @property
     def criteria(self) -> pd.DataFrame:
-        """ Computed criteria to choose the binarization algorithm """
+        """Computed criteria to choose the binarization algorithm"""
         if hasattr(self, "_criteria"):
             return self._criteria
         else:
@@ -705,7 +616,7 @@ class scBoolSeq(object):
 
     @property
     def criteria_zero_inf(self) -> pd.DataFrame:
-        """ Recomputed criteria to simulate zero-inf genes """
+        """Recomputed criteria to simulate zero-inf genes"""
         if hasattr(self, "_zero_inf_criteria"):
             return self._zero_inf_criteria
         raise AttributeError(
@@ -714,7 +625,7 @@ class scBoolSeq(object):
 
     @property
     def simulation_criteria(self) -> pd.DataFrame:
-        """ Computed criteria to simulate data """
+        """Computed criteria to simulate data"""
         if hasattr(self, "_simulation_criteria"):
             return self._simulation_criteria
         raise AttributeError(
