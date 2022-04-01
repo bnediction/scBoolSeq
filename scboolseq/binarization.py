@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-def _binarize_discarded(gene: pd.Series, criteria: pd.DataFrame):
+def _binarize_discarded(gene: pd.Series, criteria: pd.DataFrame, alpha: float):
     """ """
     return pd.Series(np.nan, index=gene.index)
 
