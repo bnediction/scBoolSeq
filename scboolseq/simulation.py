@@ -546,7 +546,8 @@ def biased_simulation_from_binary_state(
 def simulate_from_boolean_trajectory(
     boolean_trajectory_df: pd.DataFrame,
     criteria_df: pd.DataFrame,
-    n_samples_per_state: SampleCountSpec = 300,
+    n_samples_per_state: SampleCountSpec = 1,
+    n_threads: Optional[int] = None,
     rng_seed: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -624,6 +625,7 @@ def simulate_from_boolean_trajectory(
                 binary_state.to_frame().T,
                 criteria_df,
                 n_samples=size,
+                n_threads=n_threads,
                 seed=_rng_seed,
             )
             .reset_index()

@@ -7,7 +7,7 @@
 
 __all__ = ["scBoolSeq"]
 
-from typing import NoReturn, Any, Optional, Union
+from typing import NoReturn, Any, Optional, Union, Tuple
 from pathlib import Path
 import logging
 
@@ -31,7 +31,10 @@ import numpy as np
 import pandas as pd
 
 # local imports
-from .simulation import biased_simulation_from_binary_state
+from .simulation import (
+    biased_simulation_from_binary_state,
+    simulate_from_boolean_trajectory,
+)
 from .binarization import _binarize as new_binarize
 
 # R source code locations :
@@ -115,6 +118,25 @@ class scBoolSeq(object):
         )
         return "\n".join(_err_ls)
 
+    @staticmethod
+    def _check_df_contains_no_nan(
+        _df: pd.DataFrame, _parameter_name: str = "data"
+    ) -> NoReturn:
+        """ """
+        _na_count = _df.isna().sum().sum()
+        if _na_count:
+            raise ValueError(
+                " ".join(
+                    [
+                        f"Parameter `{_parameter_name}` has {_na_count} NaN entries",
+                        "this will cause undefined behaviour when computing criteria",
+                        "or simulating expression data."
+                        "Please verify that all entries of your dataframe",
+                        "are valid numerical entries.",
+                    ]
+                )
+            )
+
     def __init__(self, data: pd.DataFrame, r_seed: Optional[int] = None):
         # self._addr will be used to keep track of R objects related to the instance :
         self._addr: str = str(hex(id(self)))
@@ -155,19 +177,7 @@ class scBoolSeq(object):
             raise TypeError(
                 f"Parameter 'data' must be of type 'pandas.DataFrame' not {type(data)}"
             )
-        _na_count = data.isna().sum().sum()
-        if _na_count:
-            raise ValueError(
-                " ".join(
-                    [
-                        f"Parameter data has {_na_count} NaN entries",
-                        "this will cause undefined beheviour when computing",
-                        "the criteria on the R backend."
-                        "Please verify that all entries of your dataframe",
-                        "are valid numerical entries.",
-                    ]
-                )
-            )
+        self._check_df_contains_no_nan(_df=data, _parameter_name="data")
         self._data: pd.DataFrame = data
 
         # set R rng seed
@@ -490,6 +500,7 @@ class scBoolSeq(object):
             )
 
         data = data or self.data.copy(deep=True)
+        self._check_df_contains_no_nan(_df=data, _parameter_name="data")
         self._alpha = alpha
 
         # verify binarised genes are contained in the simulation criteria index
@@ -498,9 +509,8 @@ class scBoolSeq(object):
                 "'data' contains genes for which there is no simulation criterion."
             )
 
-        # The following check may be unnecessary as we are using self.criteria,
-        # which by construction can only yield valid criteria.
-        # What if the user tampered with the criteria ?
+        # Redundant integrity check, verify that the user did not tamper with
+        # the criteria dataframe:
         if not all(
             category in self._valid_categories for category in self.criteria.Category
         ):
@@ -575,19 +585,54 @@ class scBoolSeq(object):
 
     def simulate(
         self, binary_df, n_threads: Optional[int] = None, seed: Optional[int] = None
-    ):
-        """wrapper for profile_binr.simulation.biased_simulation_from_binary_state"""
+    ) -> pd.DataFrame:
+        """
+        Perform biased simulation based on a fully determined binary DataFrame.
+
+        wrapper for profile_binr.simulation.biased_simulation_from_binary_state
+        """
         if not self._can_simulate:
             raise AttributeError("Call .simulation_fit() first")
+        self._check_df_contains_no_nan(_df=binary_df, _parameter_name="binary_df")
         n_threads = (
             min(abs(n_threads), multiprocessing.cpu_count())
             if n_threads
             else multiprocessing.cpu_count()
         )
-        # TODO : change this function call to be
-        # scBoolSeq.dynamics.simulate_from_boolean_trajectory()
         return biased_simulation_from_binary_state(
             binary_df, self.simulation_criteria, n_threads=n_threads, seed=seed
+        )
+
+    def simulate_from_trajectory(
+        self,
+        binary_df,
+        n_samples_per_state: int = 1,
+        n_threads: Optional[int] = None,
+        rng_seed: Optional[int] = None,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Simulate a single cell experiment from a boolean trace,
+        specifying how many samples (cells) should be produced for each
+        binary state. This method returns both a synthetic RNA-Seq DataFrame
+        and a metadata DataFrame which can be used to apply trajectory
+        reconstruction methods.
+
+        wrapper for scBoolSeq.simulation.simulate_from_boolean_trajectory
+        """
+        if not self._can_simulate:
+            raise AttributeError("Call .simulation_fit() first")
+        self._check_df_contains_no_nan(_df=binary_df, _parameter_name="binary_df")
+        n_threads = (
+            min(abs(n_threads), multiprocessing.cpu_count())
+            if n_threads
+            else multiprocessing.cpu_count()
+        )
+        return simulate_from_boolean_trajectory(
+            boolean_trajectory_df=binary_df,
+            criteria_df=self.simulation_criteria,
+            n_samples_per_state=n_samples_per_state,
+            n_threads=n_threads,
+            rng_seed=rng_seed,
         )
 
     @property
