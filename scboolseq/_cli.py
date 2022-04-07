@@ -21,6 +21,9 @@ class scBoolSeqRunner(object):
             )
         self.action = action
 
+    def __repr__(self):
+        return f"scBoolSeqRunner(action={self.action})"
+
     def binarize(self, args):
         """binarize expression data"""
         print("binarizing")
@@ -34,7 +37,7 @@ class scBoolSeqRunner(object):
             print(f"arg({arg}) = {val}")
 
     def __call__(self, args):
-        f"""{self.action} via scBoolSeq"""
+        """Binarize or synthesize via scBoolSeq"""
         getattr(self, self.action)(args)
 
 
