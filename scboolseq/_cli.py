@@ -1,4 +1,4 @@
-""" Command line parser for IRM """
+""" Command line parser for scBoolSeq"""
 
 from pathlib import Path
 import argparse
