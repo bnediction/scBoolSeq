@@ -7,13 +7,19 @@ import numpy as np
 import pandas as pd
 
 
-def _binarize_discarded(gene: pd.Series, criteria: pd.DataFrame, alpha: float):
-    """ """
+def _binarize_discarded(gene: pd.Series, *args):
+    """Helper function for the binarization of discarded genes.
+    Not intended to be called directly. The inclusion of the variadic
+    argument *args was introduced to avoid type errors when calling it
+    from scboolseq.core.scBoolSeq"""
     return pd.Series(np.nan, index=gene.index)
 
 
-def _binarize_bimodal(gene: pd.Series, criteria: pd.DataFrame, alpha: float):
-    """ """
+def _binarize_bimodal(gene: pd.Series, criteria: pd.DataFrame, *args):
+    """Helper function for the binarization of bimodal genes.
+    Not intended to be called directly. The inclusion of the variadic
+    argument *args was introduced to avoid type errors when calling it
+    from scboolseq.core.scBoolSeq"""
     _binary_gene = pd.Series(np.nan, index=gene.index)
     _criterion = criteria.loc[gene.name, :]
     bim_thresh_up = _criterion["bim_thresh_up"]
@@ -26,7 +32,8 @@ def _binarize_bimodal(gene: pd.Series, criteria: pd.DataFrame, alpha: float):
 def _binarize_unimodal_and_zeroinf(
     gene: pd.Series, criteria: pd.DataFrame, alpha: float
 ):
-    """ """
+    """Helper function for the binarization of unimodal and zero-inflated genes.
+    Not intended to be called directly."""
     _binary_gene = pd.Series(np.nan, index=gene.index)
     _criterion = criteria.loc[gene.name, :]
     unim_thresh_up = _criterion["unimodal_high_quantile"] + alpha * _criterion["IQR"]
@@ -45,7 +52,9 @@ _binarization_function_by_category = {
 
 
 def _binarize_gene(gene: pd.Series, criteria: pd.DataFrame, alpha: float) -> pd.Series:
-    """ """
+    """Helper function for the binarization of a single gene.
+    Not intended to be called directly. It is internally used by
+    scboolseq.binarization._binarize and scboolseq.binarization.binarize"""
     return _binarization_function_by_category[criteria.loc[gene.name, "Category"]](
         gene, criteria, alpha
     )
@@ -60,8 +69,7 @@ def _binarize(criteria: pd.DataFrame, alpha: float, data: pd.DataFrame) -> pd.Da
 
 def binarize(data: pd.DataFrame, criteria: pd.DataFrame, alpha: float) -> pd.DataFrame:
     """binarize `data` according to `criteria`,
-    using `alpha` multiplier for the IQR, for Unimodal
-    and ZeroInf genes."""
+    using `alpha` multiplier for the IQR, for Unimodal and ZeroInf genes."""
     return data.apply(_binarize_gene, args=[criteria, alpha])
 
 

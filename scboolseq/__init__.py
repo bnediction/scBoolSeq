@@ -1,5 +1,9 @@
 """
-The PROFILE methodology for the binarisation and normalisation of RNA-seq data.
+scBoolSeq:
+scRNA-Seq data binarisation and synthetic generation from Boolean dynamics.
+
+author: "Gustavo Magaña López"
+credits: "BNediction ; Institut Curie"
 """
 
 from .core import scBoolSeq
