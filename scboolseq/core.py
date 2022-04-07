@@ -35,7 +35,7 @@ from .simulation import (
     biased_simulation_from_binary_state,
     simulate_from_boolean_trajectory,
 )
-from .binarization import _binarize as new_binarize
+from .binarization import _binarize as binarization_binarize
 
 # R source code locations :
 __SCBOOLSEQ_DIR__ = Path(__file__).resolve().parent.joinpath("_R")
@@ -122,7 +122,10 @@ class scBoolSeq(object):
     def _check_df_contains_no_nan(
         _df: pd.DataFrame, _parameter_name: str = "data"
     ) -> NoReturn:
-        """ """
+        """Helper method for checking the validity of a given DataFrame.
+        rpy2 provides no conversion rule for the multiple types of NaN that
+        exist on R and Python. Passing a DataFrame with missing entries to the
+        R backend may result in undefined behaviour."""
         _na_count = _df.isna().sum().sum()
         if _na_count:
             raise ValueError(
@@ -137,15 +140,22 @@ class scBoolSeq(object):
                 )
             )
 
-    def __init__(self, data: pd.DataFrame, r_seed: Optional[int] = None):
+    def __init__(
+        self,
+        data: Optional[pd.DataFrame] = None,
+        criteria: Optional[pd.DataFrame] = None,
+        simulation_criteria: Optional[pd.DataFrame] = None,
+        r_seed: Optional[int] = None,
+    ):
         # self._addr will be used to keep track of R objects related to the instance :
         self._addr: str = str(hex(id(self)))
         self.r = r_objs.r
         self.r_globalenv = GLOBALENV
         self._valid_categories = ("ZeroInf", "Bimodal", "Discarded", "Unimodal")
-        self._criteria: pd.DataFrame
-        self._zero_inf_criteria: pd.DataFrame
-        self._simulation_criteria: pd.DataFrame
+        self.data: Optional[pd.DataFrame] = data
+        self.criteria: Optional[pd.DataFrame] = criteria
+        self.zero_inf_criteria: Optional[pd.DataFrame] = None
+        self.simulation_criteria: Optional[pd.DataFrame] = simulation_criteria
         self._zero_inf_idx: pd.core.indexes.base.Index
         self._zero_inf_df: pd.DataFrame
         self._unimodal_margin_quantile: float
@@ -161,26 +171,18 @@ class scBoolSeq(object):
             print("Trying to automatically satisfy missing dependencies\n")
             try:
                 # install dependencies :
-                with open(__SCBOOLSEQ_BOOTSTRAP__, "r", encoding="utf-8") as f:
-                    self.r("".join(f.readlines()))
+                with open(__SCBOOLSEQ_BOOTSTRAP__, "r", encoding="utf-8") as _scbs_boot:
+                    self.r("".join(_scbs_boot.readlines()))
                 print("\n Missing dependencies successfully installed \n")
                 # re-import the R source as functions were not saved because
                 # of the previous RRuntimeError
-                with open(__SCBOOLSEQ_SRC__, "r", encoding="utf-8") as f:
-                    self.r("".join(f.readlines()))
+                with open(__SCBOOLSEQ_SRC__, "r", encoding="utf-8") as _scbs_src:
+                    self.r("".join(_scbs_src.readlines()))
             except RRuntimeError as _rer:
                 print("Bootstrapping the installation of R dependencies failed:")
                 raise _rer from None
 
-        # sanitise inputs :
-        if not isinstance(data, pd.DataFrame):
-            raise TypeError(
-                f"Parameter 'data' must be of type 'pandas.DataFrame' not {type(data)}"
-            )
-        self._check_df_contains_no_nan(_df=data, _parameter_name="data")
-        self._data: pd.DataFrame = data
-
-        # set R rng seed
+        # if provided, set R rng seed
         if r_seed is not None:
             if not isinstance(r_seed, int):
                 raise TypeError(
@@ -189,23 +191,33 @@ class scBoolSeq(object):
             self.r(f"set.seed({r_seed})")
 
     def __repr__(self):
-        return (
-            f"scBoolSeq(trained={self._is_trained}, can_simulate={self._can_simulate})"
+        _attrs = (
+            f"has_data={self._has_data}",
+            f"is_trained={self._is_trained}",
+            f"can_simulate={self._can_simulate}",
         )
+        return f"scBoolSeq({', '.join(_attrs)})"
 
     def r_ls(self):
         """Return a list containing all the names in the main R environment."""
         return list(self.r("ls()"))
 
     @property
+    def _has_data(self) -> bool:
+        """Boolean indicating if the instance possesses a reference 'data' DataFrame"""
+        return hasattr(self, "data") and isinstance(self.data, pd.DataFrame)
+
+    @property
     def _is_trained(self) -> bool:
         """Boolean indicating if the instance can be used to binarize expression."""
-        return hasattr(self, "_criteria")
+        return hasattr(self, "criteria") and isinstance(self.criteria, pd.DataFrame)
 
     @property
     def _can_simulate(self) -> bool:
         """Boolean indicating if the instance can be used to simulate expression."""
-        return hasattr(self, "_simulation_criteria")
+        return hasattr(self, "simulation_criteria") and isinstance(
+            self.simulation_criteria, pd.DataFrame
+        )
 
     @property
     def _data_in_r(self) -> bool:
@@ -252,22 +264,22 @@ class scBoolSeq(object):
         Arguments:
         ---------
 
-            * n_threads: The number of parallel processes (threads) to be used.
+            * n_threads: The number of parallel threads (processes) to be used.
 
             * dor_threshold: The DropOut Rate (percentage of zero entries) after which
                              genes should be discarded. For example `dor_threshold = 0.5`
                              will discard genes having a DropOut Rate > 50%. This means
-                             that binarisation and synthetic generation for this gene will
-                             not occur.
+                             that binarisation and synthetic generation for these genes
+                             will not occur.
 
             * unimodal_margin_quantile:
                     Binarisation of "Unimodal" and "ZeroInflated" genes is quantile-based.
                     This parameter is needed to compute the binarisation thresholds:
 
-                        threshold_true = quantile(gene, 1 - unimodal_margin_quantile) + \alpha * IQR
-                        threshold_false = quantile(gene, unimodal_margin_quantile) - \alpha * IQR
+                    threshold_true = quantile(gene, 1 - unimodal_margin_quantile) + \\alpha * IQR
+                    threshold_false = quantile(gene, unimodal_margin_quantile) - \\alpha * IQR
 
-            * mask_zero_entries: Wether zero entries should be ignored while estimating the criteria.
+            * mask_zero_entries: Wether zero entries should be ignored at criteria estimation.
                          Setting it to True is discouraged. This parameter is really needed
                          to calculate the simulation criteria, but it was included in this method
                          to have a uniform API.
@@ -317,8 +329,19 @@ class scBoolSeq(object):
         self._dor_threshold = dor_threshold
 
         # the data must be instantiated before performing the R call :
-        if not self._data_in_r:
-            self.r_instantiate_data(self.data, f"META_RNA_{self._addr}")
+        if self._has_data:
+            if not self._is_trained and not self._data_in_r:
+                self._check_df_contains_no_nan(self.data)
+                self.r_instantiate_data(self.data, f"META_RNA_{self._addr}")
+        else:
+            raise AttributeError(
+                "\n".join(
+                    (
+                        "Cannot compute criteria without a reference 'data' DataFrame,",
+                        "please assign a valid RNA-Seq DataFrame to `self.data`",
+                    )
+                )
+            )
 
         # call compute_criteria only once
         if not self._is_trained:
@@ -331,7 +354,7 @@ class scBoolSeq(object):
             ]
             try:
                 with localconverter(r_objs.default_converter + pandas2ri.converter):
-                    self._criteria = r_objs.conversion.rpy2py(
+                    self.criteria = r_objs.conversion.rpy2py(
                         self.r(
                             f"criteria_{self._addr} <- compute_criteria({', '.join(params)})"
                         )
@@ -351,11 +374,20 @@ class scBoolSeq(object):
         """Re compute criteria for genes classified as zero-inflated,
         in order to better estimate simulation parameters."""
         if not self._is_trained:
-            raise ValueError(
+            raise AttributeError(
                 "\n".join(
                     [
-                        "Cannot compute simulation fit because self.criteria does not exist.",
+                        "Cannot compute simulation fit without a valid `criteria` DataFrame",
                         "Call self.fit() before calling this method.",
+                    ]
+                )
+            )
+        if not self._has_data:
+            raise AttributeError(
+                "\n".join(
+                    [
+                        "Cannot compute simulation fit because the instance has no valid `data`",
+                        "please assign a valid RNA-Seq DataFrame to `self.data`",
                     ]
                 )
             )
@@ -380,10 +412,10 @@ class scBoolSeq(object):
                 )
             )
 
-        self._zero_inf_idx = self._criteria[self._criteria.Category == "ZeroInf"].index
+        self._zero_inf_idx = self.criteria[self.criteria.Category == "ZeroInf"].index
         # Perform simulation_fit iff there is at least one Zero-Inflated gene.
         if len(self._zero_inf_idx) > 0:
-            self._zero_inf_df = self._data.loc[:, self._zero_inf_idx]
+            self._zero_inf_df = self.data.loc[:, self._zero_inf_idx]
             self.r_instantiate_data(self._zero_inf_df, f"zero_inf_RNA_{self._addr}")
 
             params = [
@@ -395,39 +427,39 @@ class scBoolSeq(object):
             ]
             try:
                 with localconverter(r_objs.default_converter + pandas2ri.converter):
-                    self._zero_inf_criteria = r_objs.conversion.rpy2py(
+                    self.zero_inf_criteria = r_objs.conversion.rpy2py(
                         self.r(
                             f"zero_inf_criteria_{self._addr} <- compute_criteria({', '.join(params)})"
                         )
                     )
 
                 # force ZeroInf genes to be simulated as Unimodal
-                self._zero_inf_criteria.loc[
-                    self._zero_inf_criteria.Category == "ZeroInf", "Category"
+                self.zero_inf_criteria.loc[
+                    self.zero_inf_criteria.Category == "ZeroInf", "Category"
                 ] = "Unimodal"
                 # Copy the originally estimated criteria
-                self._simulation_criteria = self._criteria.copy()
+                self.simulation_criteria = self.criteria.copy()
                 # Update the criteria for ZeroInf genes
-                self._simulation_criteria.loc[
+                self.simulation_criteria.loc[
                     self._zero_inf_idx, :
-                ] = self._zero_inf_criteria
+                ] = self.zero_inf_criteria
             except RRuntimeError as _rer:
                 raise RRuntimeError(self._build_r_error_hint(_rer)) from None
         else:
             # Copy the originally estimated criteria
-            self._simulation_criteria = self._criteria.copy()
+            self.simulation_criteria = self.criteria.copy()
 
         return self
 
     def _binarize_or_normalize(
         self,
         action: str,
-        data: Optional[pd.DataFrame] = None,
+        data: pd.DataFrame,
         gene: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Not intended to be called directly.
-        Handle calls to self.binarize and self.normalize by dynamically constructing the R call.
+        Handle calls to self.r_binarize and self.r_normalize by dynamically constructing the R call.
         """
 
         assert action in [
@@ -488,18 +520,18 @@ class scBoolSeq(object):
 
     def binarize(
         self,
-        data: Optional[pd.DataFrame] = None,
+        data: pd.DataFrame = None,
         alpha: float = 1.0,
         n_threads: int = multiprocessing.cpu_count(),
         include_discarded: bool = False,
     ):
-        """ """
+        """Binarize given RNA-Seq `data`, according to self.criteria"""
         if not self._is_trained:
             raise AttributeError(
                 "Cannot binarize without the criteria DataFrame. Call self.fit() first."
             )
 
-        data = data or self.data.copy(deep=True)
+        data = data.copy(deep=True)
         self._check_df_contains_no_nan(_df=data, _parameter_name="data")
         self._alpha = alpha
 
@@ -526,7 +558,7 @@ class scBoolSeq(object):
             )
 
         _binary_ls = np.array_split(data, n_threads, axis=1)
-        _partial_binarize = partial(new_binarize, self.criteria, self._alpha)
+        _partial_binarize = partial(binarization_binarize, self.criteria, self._alpha)
         with multiprocessing.Pool(n_threads) as pool:
             ret_list = pool.map(_partial_binarize, _binary_ls)
 
@@ -541,15 +573,20 @@ class scBoolSeq(object):
 
         return result
 
+    def r_binarise(self, *args, **kwargs) -> pd.DataFrame:
+        """alias for self.r_binarize. See help(scBoolSeq.r_binarize)"""
+        return self.r_normalize(*args, **kwargs)
+
     def r_binarize(
-        self, data: Optional[pd.DataFrame] = None, gene: Optional[str] = None
+        self, data: pd.DataFrame, gene: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Binarize expression data.
 
         NOTICE: Legacy function. This version has no option to parametrize the
-                binarization threshold.
-
+                binarization threshold. Furthermore, given that the binarization
+                is done sequentially on the R backend, it will be much slower
+                than the parallel Python implementation.
 
         Parameters:
             data: a (optional) pandas.DataFrame containing genes as columns and rows as measurements
@@ -565,11 +602,11 @@ class scBoolSeq(object):
         return self.binarize(*args, **kwargs)
 
     def r_normalise(self, *args, **kwargs) -> pd.DataFrame:
-        """alias for self.normalize. See help(scBoolSeq.normalize)"""
+        """alias for self.normalize. See help(scBoolSeq.r_normalize)"""
         return self.r_normalize(*args, **kwargs)
 
     def r_normalize(
-        self, data: Optional[pd.DataFrame] = None, gene: Optional[str] = None
+        self, data: pd.DataFrame, gene: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Normalize expression data.
@@ -580,11 +617,18 @@ class scBoolSeq(object):
 
             gene: an (optional) string determining the gene name to normalize. It must be contained
                   the dataframe to binarize (and the previously computed criteria).
+
+        NOTICE: This function passes `data` to the R backend, which may be slow depending on
+        the dataframe's size.
         """
         return self._binarize_or_normalize("normalize", data, gene)
 
     def simulate(
-        self, binary_df, n_threads: Optional[int] = None, seed: Optional[int] = None
+        self,
+        binary_df,
+        n_threads: Optional[int] = None,
+        n_samples: Optional[int] = None,
+        seed: Optional[int] = None,
     ) -> pd.DataFrame:
         """
         Perform biased simulation based on a fully determined binary DataFrame.
@@ -600,12 +644,16 @@ class scBoolSeq(object):
             else multiprocessing.cpu_count()
         )
         return biased_simulation_from_binary_state(
-            binary_df, self.simulation_criteria, n_threads=n_threads, seed=seed
+            binary_df,
+            self.simulation_criteria,
+            n_threads=n_threads,
+            n_samples=n_samples,
+            seed=seed,
         )
 
-    def simulate_from_trajectory(
+    def simulate_with_metadata(
         self,
-        binary_df,
+        binary_df: pd.DataFrame,
         n_samples_per_state: int = 1,
         n_threads: Optional[int] = None,
         rng_seed: Optional[int] = None,
@@ -633,54 +681,6 @@ class scBoolSeq(object):
             n_samples_per_state=n_samples_per_state,
             n_threads=n_threads,
             rng_seed=rng_seed,
-        )
-
-    @property
-    def data(self) -> pd.DataFrame:
-        """The expression data used to compute the criteria.
-        WARNING : this returns a reference to the DataFrame and not
-        a copy. If you modify the expression data before calling
-        self.fit() the binarization might be biased."""
-        return self._data
-
-    @data.deleter
-    def data(self):
-        raise AttributeError(
-            "scBoolSeq wrapper cannot operate without attribute 'data'. Aborting deletion."
-        )
-
-    @property
-    def criteria(self) -> pd.DataFrame:
-        """Computed criteria to choose the binarization algorithm"""
-        if hasattr(self, "_criteria"):
-            return self._criteria
-        else:
-            raise AttributeError(
-                "'criteria' has not been calculated. Call self.fit() to define it"
-            )
-
-    @property
-    def criteria_zero_inf(self) -> pd.DataFrame:
-        """Recomputed criteria to simulate zero-inf genes"""
-        if hasattr(self, "_zero_inf_criteria"):
-            return self._zero_inf_criteria
-        raise AttributeError(
-            "'criteria_zero_inf' has not been calculated. Call self.simulation_fit() to define it"
-        )
-
-    @property
-    def simulation_criteria(self) -> pd.DataFrame:
-        """Computed criteria to simulate data"""
-        if hasattr(self, "_simulation_criteria"):
-            return self._simulation_criteria
-        raise AttributeError(
-            "'simulation_criteria' has not been calculated. Call self.simulation_fit() to define it"
-        )
-
-    @criteria.deleter
-    def criteria(self):
-        raise AttributeError(
-            "Cannot delete 'criteria' as it is necessary to perform the binarization and simulation, aborting."
         )
 
     def clear_r_envir(self):
