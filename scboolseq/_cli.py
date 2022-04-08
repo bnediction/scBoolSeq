@@ -13,11 +13,12 @@ class scBoolSeqRunner(object):
     """Runner used to call scboolseq.core.scBoolSeq using
     the arguments parsed by scboolseq._cli.scBoolSeqCLIParser"""
 
+    valid_actions = ("binarize", "synthesize")
+
     def __init__(self, action: str):
-        self._valid_actions = ("binarize", "synthesize")
-        if action not in self._valid_actions:
+        if action not in self.valid_actions:
             raise ValueError(
-                f"Unknown action `{action}`. Available options are {self._valid_actions}"
+                f"Unknown action `{action}`. Available options are {self.valid_actions}"
             )
         self.action = action
 
@@ -47,7 +48,7 @@ class scBoolSeqCLIParser(object):
     """
 
     def __init__(self):
-        parser = argparse.ArgumentParser(
+        self.main_parser = argparse.ArgumentParser(
             description="""
                 scBoolSeq: bulk and single-cell RNA-Seq data binarization and synthetic 
                 generation from Boolean dynamics
@@ -60,13 +61,13 @@ Available commands:
 \t* from_file\t Repeat a binarization or synthethic generation experiment, based on a config file.
 """,
         )
-        parser.add_argument("command", help="Subcommand to run")
+        self.main_parser.add_argument("command", help="Subcommand to run")
         # parse_args defaults to [1:] for args
         # exclude the rest of the args too, or validation will fail
-        args = parser.parse_args(sys.argv[1:2])
+        args = self.main_parser.parse_args(sys.argv[1:2])
         if not hasattr(self, args.command):
             print("Unrecognized command")
-            parser.print_help()
+            self.main_parser.print_help()
             sys.exit(1)
         # use dispatch pattern to invoke method with same name
         getattr(self, args.command)()
@@ -80,13 +81,13 @@ Available commands:
                 to each one of the two modalities. 
                 * Unimodal and Zero-Inflated genes: Binarization based on parametric outlier
                 assignment. By default, Tukey Fences [Q1 - alpha * IQR, Q3 + alpha * IQR],
-                with alpha <- 1; The margin quantile (q25 yields Q1 and Q3) and alpha parameter
+                with (alpha == 1); The margin quantile (q25 yields Q1 and Q3) and alpha parameter
                 can be optionally specified via the command line interface.""",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
         parser.add_argument(
             "in_file",
-            type=lambda x: Path(x).resolve(),
+            type=lambda x: Path(x).resolve().as_posix(),
             help="""
             A csv file containing a column for each gene and a line for each observation (cell/sample).
             Expression data must be normalized before using this tool.""",
@@ -94,7 +95,7 @@ Available commands:
         _ref_data_or_criteria = parser.add_mutually_exclusive_group(required=False)
         _ref_data_or_criteria.add_argument(
             "--reference",
-            type=lambda x: Path(x).resolve(),
+            type=lambda x: Path(x).resolve().as_posix(),
             help="""
             A "reference" csv file containing a column for each gene and a line for each observation (cell/sample).
             The "reference" will be used to compute the criteria needed for binarization.
@@ -102,7 +103,7 @@ Available commands:
         )
         _ref_data_or_criteria.add_argument(
             "--criteria",
-            type=lambda x: Path(x).resolve(),
+            type=lambda x: Path(x).resolve().as_posix(),
             help="""
             A "criteria" csv file, previously computed using this tool,
             having the default columns (or any extra criteria added by the user, which will
@@ -124,11 +125,10 @@ Available commands:
         )
         parser.add_argument(
             "--dump_config",
-            type=bool,
-            default=False,
+            action="store_true",
             help="""
             Should the specified parameters be dumped to a toml configuration
-            file? (bool: %(default)d)""",
+            file?""",
         )
         # ignore the command and the subcommand, parse all options :
         args = dict(vars(parser.parse_args(sys.argv[2:])))
@@ -143,11 +143,145 @@ Available commands:
                 # avoid overwritting existing config files
                 raise FileExistsError("Config file already exists, aborting")
             with open(_config_dest, "w", encoding="utf-8") as _c_f:
+                _ = args.pop("dump_config")
                 toml.dump(args, _c_f)
 
         binarizer = scBoolSeqRunner(action=args.pop("action"))
         binarizer(args)
 
+    def synthesize(self):
+        """Create a synthetic RNA-Seq dataset from a reference
+        expression dataset (or simulation_criteria) and a frame containing
+        a trace of Boolean states."""
+        parser = argparse.ArgumentParser(
+            description="""
+            Synthesis of RNA-Seq data via biased sampling from Boolean states.
+            Using a set of "simulation_criteria" and or a "reference" RNA-Seq dataset.
+            Genes will be sampled from a Gaussian of a Gaussian mixture with two modalities.
+            The DropOut rates will be comparable to those of reference dataset (or simulation_criteria).
+            """,
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        )
+        parser.add_argument(
+            "in_file",
+            type=lambda x: Path(x).resolve().as_posix(),
+            help="""
+            A csv file containing a column for each gene and a line for each observation 
+            (an observation here is defined as a FULLY DETERMINED Boolean state). Preferrably,
+            Boolean states should be represented as zeros and ones.
+            """,
+        )
+        _ref_data_or_criteria = parser.add_mutually_exclusive_group(required=False)
+        _reference_mandatory_options = ("reference", "simulation_criteria")
+        _ref_data_or_criteria.add_argument(
+            "--reference",
+            type=lambda x: Path(x).resolve().as_posix(),
+            help="""
+            A "reference" csv file containing a column for each gene and a line for each observation (cell/sample).
+            The "reference" will be used to compute the `simulation_criteria` needed in order to perform biased sampling
+            and simulation.
+            Expression data must be normalized before using this tool.""",
+        )
+        _ref_data_or_criteria.add_argument(
+            "--simulation_criteria",
+            type=lambda x: Path(x).resolve().as_posix(),
+            help="""
+            A "simulation_criteria" csv file, previously computed using this tool,
+            having the default columns (or any extra criteria added by the user, which will
+            be ignored) and a row for at least each gene contained in `in_file` (criteria for
+            extra genes will simply be ignored).
+            The criteria DataFrame will be used to generate a synthetic RNA-Seq dataset
+            from the binary frame `in_file`.""",
+        )
+        parser.add_argument(
+            "--dump_config",
+            action="store_true",
+            help="""
+            Should the specified parameters be dumped to a toml configuration
+            file?""",
+        )
+        args = dict(vars(parser.parse_args(sys.argv[2:])))
+        if not any(args[_key] for _key in _reference_mandatory_options):
+            parser.print_help()
+            print(
+                "\nCannot simulate without any reference.",
+                f"Please specify either --{_reference_mandatory_options[0]}",
+                f"or --{_reference_mandatory_options[1]}",
+                sep=" ",
+            )
+            sys.exit(1)
+
+        args.update({"action": "synthesize"})
+
+        if args["dump_config"]:
+            _timestamp = (
+                str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
+            )
+            _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
+            if Path(_config_dest).resolve().exists():
+                # avoid overwritting existing config files
+                raise FileExistsError("Config file already exists, aborting")
+            with open(_config_dest, "w", encoding="utf-8") as _c_f:
+                _ = args.pop("dump_config")
+                toml.dump(args, _c_f)
+
+        simulator = scBoolSeqRunner(action=args.pop("action"))
+        simulator(args)
+
     def from_file(self):
-        """Read the configuration params from a config parser."""
-        raise NotImplementedError("not yet.")
+        """Read the configuration params from a TOML config file"""
+        parser = argparse.ArgumentParser(
+            description="Read a toml configuration file to parse arguments for simulations"
+        )
+        # NOT prefixing the argument with -- means it's not optional
+        parser.add_argument(
+            "config_file",
+            type=lambda p: Path(p).resolve(),
+            help="""
+            A toml configuration file. See https://toml.io/en/
+
+            For the parameters' keys and values, run:
+            `$ scBoolSeq [binarize | synthesize] -h`""",
+        )
+        parser.add_argument(
+            "--dump_config",
+            action="store_true",
+            help="""
+            Should the parameters defined in the specified config file be dumped to
+            a new toml configuration file?""",
+        )
+        args = dict(vars(parser.parse_args(sys.argv[2:])))
+        with open(args["config_file"], "r", encoding="utf-8") as config:
+            params = toml.load(config)
+
+        if "action" not in params.keys():
+            parser.print_help()
+            print(
+                f"\nConfig file {args['config_file']} has no specified action, aborting."
+            )
+            sys.exit(1)
+
+        if params["action"] not in scBoolSeqRunner.valid_actions:
+            parser.print_help()
+            print(
+                f"\nConfig file {args['config_file']} requested an unknown action: ",
+                f"`{params['action']}`.",
+                f"Valid actions are: {scBoolSeqRunner.valid_actions}",
+                sep="\n",
+            )
+            sys.exit(1)
+
+        if args["dump_config"]:
+            _timestamp = (
+                str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
+            )
+            _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
+            if Path(_config_dest).resolve().exists():
+                # avoid overwritting existing config files
+                raise FileExistsError("Config file already exists, aborting")
+            with open(_config_dest, "w", encoding="utf-8") as _c_f:
+                _ = args.pop("dump_config")
+                toml.dump(params, _c_f)
+
+        binarizer_or_simulator = scBoolSeqRunner(action=params.pop("action"))
+        binarizer_or_simulator(params)
