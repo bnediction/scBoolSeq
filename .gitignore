@@ -6,6 +6,9 @@
 data
 results
 
+# data files :
+/**/*.csv
+
 # directories created for tinkering and exploration:
 manual_tests
 stray

@@ -186,7 +186,7 @@ NOTE on CSV file specs:
             "--dump_config",
             action="store_true",
             help="""
-            Should the specified parameters be dumped to a toml configuration
+            Should the specified CLI arguments be dumped to a toml configuration
             file?""",
         )
         # ignore the command and the subcommand, parse all options :
@@ -251,10 +251,22 @@ NOTE on CSV file specs:
             from the binary frame `in_file`.""",
         )
         parser.add_argument(
+            "--n",
+            type=int,
+            default=1,
+            help="""Number of samples to be simulated per binary state (int: %(default)d)""",
+        )
+        parser.add_argument(
+            "--dump_criteria",
+            action="store_true",
+            help="""Should the computed simulation criteria be saved to a csv file
+            to be reutilized afterwards?""",
+        )
+        parser.add_argument(
             "--dump_config",
             action="store_true",
             help="""
-            Should the specified parameters be dumped to a toml configuration
+            Should the specified CLI arguments be dumped to a toml configuration
             file?""",
         )
         args = dict(vars(parser.parse_args(sys.argv[2:])))
@@ -325,10 +337,8 @@ NOTE on CSV file specs:
             )
             sys.exit(1)
 
+        _timestamp = str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
         if args["dump_config"]:
-            _timestamp = (
-                str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
-            )
             _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
             if Path(_config_dest).resolve().exists():
                 # avoid overwritting existing config files
@@ -337,5 +347,7 @@ NOTE on CSV file specs:
                 _ = args.pop("dump_config")
                 toml.dump(params, _c_f)
 
-        binarizer_or_simulator = scBoolSeqRunner(action=params.pop("action"))
+        binarizer_or_simulator = scBoolSeqRunner(
+            action=params.pop("action"), timestamp=_timestamp
+        )
         binarizer_or_simulator(params)
