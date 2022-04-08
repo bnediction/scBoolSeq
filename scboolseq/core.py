@@ -46,9 +46,18 @@ rpy2_logger.setLevel(logging.ERROR)  # will display errors, but not warnings
 
 
 class scBoolSeq(object):
-    """Objects of this class should be instantiated by:
-        * passing a pandas.DataFrame which contains
-          SAMPLES AS ROWS and GENES AS COLUMNS.
+    """
+    scBoolSeq: scRNA-Seq data binarization and synthetic generation
+               from Boolean dynamics.
+
+    Objects of this class should be instantiated by passing
+    none, one, or more of the follwing pandas.DataFrame :
+
+        * data: SAMPLES AS ROWS and GENES AS COLUMNS.
+
+        * criteria: GENES AS ROWS, STATISTICAL PARAMS AS COLUMNS.
+
+        * simulation_criteria: idem as criteria.
 
         * optionally, an integer `r_seed` to fix the seed
           of the embedded R instance's random number generator.
@@ -65,15 +74,10 @@ class scBoolSeq(object):
 
     create a scBoolSeq instance
     >>> scbsq = scBoolSeq(exp_data, r_seed=1234)
-
-    compute "criteria" used to determine the proper binarization rule
-    for each gene in the dataset
+    # compute "criteria" used to determine the proper binarization
+    # rule for each gene in the dataset
     >>> scbsq.fit()
-
-    both methods "binarize" and "normalize" are now available:
-    >>> scbsq.binarize() # by default will binarized the expression
-                           # data used to compute the criteria.
-
+    >>> scbsq.binarize(scbsq.data)
     >>> scbsq.binarize(new_data) # binarize new observations
                                    # of the same genes (or a subset).
     """
