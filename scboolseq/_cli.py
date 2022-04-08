@@ -1,4 +1,4 @@
-""" Command line parser for scBoolSeq"""
+"""Command line parser for scBoolSeq"""
 
 from pathlib import Path
 import argparse
@@ -6,6 +6,9 @@ import sys
 import datetime as dt
 import toml
 
+import pandas as pd
+
+# local relative import
 from .core import scBoolSeq
 
 
@@ -13,23 +16,65 @@ class scBoolSeqRunner(object):
     """Runner used to call scboolseq.core.scBoolSeq using
     the arguments parsed by scboolseq._cli.scBoolSeqCLIParser"""
 
+    # Class constant used to validate inputs
     valid_actions = ("binarize", "synthesize")
 
-    def __init__(self, action: str):
+    @staticmethod
+    def f_frame_or_none(str_path_or_none):
+        """Helper function, return a DataFrame if the path parameter has been parsed."""
+        return (
+            pd.read_csv(str_path_or_none, index_col=0)
+            if str_path_or_none is not None
+            else str_path_or_none
+        )
+
+    @staticmethod
+    def f_out_file(path):
+        """Default name for output file"""
+        return path.parent.joinpath(
+            path.name.replace(path.suffix, f"_binarized{path.suffix}")
+        ).resolve()
+
+    def __init__(self, action: str, timestamp: str = ""):
         if action not in self.valid_actions:
             raise ValueError(
                 f"Unknown action `{action}`. Available options are {self.valid_actions}"
             )
         self.action = action
+        self.timestamp = timestamp
 
     def __repr__(self):
-        return f"scBoolSeqRunner(action={self.action})"
+        return f"scBoolSeqRunner(action={self.action}, timestamp={self.timestamp})"
 
     def binarize(self, args):
         """binarize expression data"""
         print("binarizing")
         for arg, val in args.items():
             print(f"arg({arg}) = {val}")
+
+        in_file = Path(args["in_file"]).resolve()
+        in_frame = self.f_frame_or_none(in_file)
+        out_file = args["output"] or self.f_out_file(in_file)
+
+        scbs = scBoolSeq()
+        scbs.data = self.f_frame_or_none(args["reference"])
+        scbs.criteria = self.f_frame_or_none(args["criteria"])
+        if not scbs._is_trained:
+            if not scbs._has_data:
+                scbs.data = in_frame
+            scbs.fit(unimodal_margin_quantile=args["margin_quantile"])
+        else:
+            print(
+                f"Ignoring specified parameter --margin_quantile={args['margin_quantile']}, "
+                "as --criteria has been specified",
+                sep=" ",
+            )
+        if args["dump_criteria"]:
+            _name = in_file.name.replace(in_file.suffix, "")
+            scbs.criteria.to_csv(f"scBoolSeq_criteria_{_name}_{self.timestamp}.csv")
+
+        binarized = scbs.binarize(in_frame, alpha=args["alpha"])
+        binarized.to_csv(out_file)
 
     def synthesize(self, args):
         """synthesize RNA-Seq data from boolean dynamics"""
@@ -44,21 +89,23 @@ class scBoolSeqRunner(object):
 
 class scBoolSeqCLIParser(object):
     """Semantic command line parser, serving as an interface for
-    the embedded tool scBoolSeq.
-    """
+    the embedded tool scBoolSeq."""
 
     def __init__(self):
         self.main_parser = argparse.ArgumentParser(
             description="""
                 scBoolSeq: bulk and single-cell RNA-Seq data binarization and synthetic 
-                generation from Boolean dynamics
-            """,
+                generation from Boolean dynamics.""",
             usage="""scboolseq <command> [<args>]
 
 Available commands:
 \t* binarize\t  Binarize a RNA-Seq dataset.
 \t* synthesize\t Simulate a RNA-Seq experiment from Boolean dynamics.
 \t* from_file\t Repeat a binarization or synthethic generation experiment, based on a config file.
+
+NOTE on CSV file specs:
+* Assumed to use the standard separator for columns ','.
+* The index is assumed to be the first column.
 """,
         )
         self.main_parser.add_argument("command", help="Subcommand to run")
@@ -69,7 +116,7 @@ Available commands:
             print("Unrecognized command")
             self.main_parser.print_help()
             sys.exit(1)
-        # use dispatch pattern to invoke method with same name
+        # dispatch the specified command
         getattr(self, args.command)()
 
     def binarize(self):
@@ -124,6 +171,18 @@ Available commands:
             help="""Margin quantile for parametric Tukey fences (float: %(default)f)""",
         )
         parser.add_argument(
+            "--output",
+            type=lambda x: Path(x).resolve().as_posix(),
+            help="""The name (can be a full path) of the file in which results should
+            be stored. Defaults to `in_file`_binarized.csv""",
+        )
+        parser.add_argument(
+            "--dump_criteria",
+            action="store_true",
+            help="""Should the computed criteria be saved to a csv file
+            to be reutilized afterwards?""",
+        )
+        parser.add_argument(
             "--dump_config",
             action="store_true",
             help="""
@@ -133,11 +192,9 @@ Available commands:
         # ignore the command and the subcommand, parse all options :
         args = dict(vars(parser.parse_args(sys.argv[2:])))
         args.update({"action": "binarize"})
+        _timestamp = str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
 
         if args["dump_config"]:
-            _timestamp = (
-                str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
-            )
             _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
             if Path(_config_dest).resolve().exists():
                 # avoid overwritting existing config files
@@ -146,7 +203,7 @@ Available commands:
                 _ = args.pop("dump_config")
                 toml.dump(args, _c_f)
 
-        binarizer = scBoolSeqRunner(action=args.pop("action"))
+        binarizer = scBoolSeqRunner(action=args.pop("action"), timestamp=_timestamp)
         binarizer(args)
 
     def synthesize(self):
@@ -210,13 +267,10 @@ Available commands:
                 sep=" ",
             )
             sys.exit(1)
-
         args.update({"action": "synthesize"})
+        _timestamp = str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
 
         if args["dump_config"]:
-            _timestamp = (
-                str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
-            )
             _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
             if Path(_config_dest).resolve().exists():
                 # avoid overwritting existing config files
@@ -225,7 +279,7 @@ Available commands:
                 _ = args.pop("dump_config")
                 toml.dump(args, _c_f)
 
-        simulator = scBoolSeqRunner(action=args.pop("action"))
+        simulator = scBoolSeqRunner(action=args.pop("action"), timestamp=_timestamp)
         simulator(args)
 
     def from_file(self):
