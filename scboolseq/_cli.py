@@ -57,15 +57,15 @@ class scBoolSeqRunner(object):
         out_file = args["output"] or self.f_out_file(in_file)
 
         scbs = scBoolSeq()
-        scbs.data = self.f_frame_or_none(args["reference"])
-        scbs.criteria = self.f_frame_or_none(args["criteria"])
+        scbs.data = self.f_frame_or_none(args.get("reference"))
+        scbs.criteria = self.f_frame_or_none(args.get("criteria"))
         if not scbs._is_trained:
             if not scbs._has_data:
                 scbs.data = in_frame
-            scbs.fit(unimodal_margin_quantile=args["margin_quantile"])
+            scbs.fit(unimodal_margin_quantile=args.get("margin_quantile", 0.25))
         else:
             print(
-                f"Ignoring specified parameter --margin_quantile={args['margin_quantile']}, "
+                f"Ignoring parameter --margin_quantile={args.get('margin_quantile', 0.25)}, "
                 "as --criteria has been specified",
                 sep=" ",
             )
@@ -73,7 +73,7 @@ class scBoolSeqRunner(object):
             _name = in_file.name.replace(in_file.suffix, "")
             scbs.criteria.to_csv(f"scBoolSeq_criteria_{_name}_{self.timestamp}.csv")
 
-        binarized = scbs.binarize(in_frame, alpha=args["alpha"])
+        binarized = scbs.binarize(in_frame, alpha=args.get("alpha", 1.0))
         binarized.to_csv(out_file)
 
     def synthesize(self, args):
