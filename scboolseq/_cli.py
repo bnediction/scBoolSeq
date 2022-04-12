@@ -18,6 +18,14 @@ class scBoolSeqRunner(object):
 
     # Class constant used to validate inputs
     valid_actions = ("binarize", "synthesize")
+    # Valid simulation categories
+    # (used to verify that users specified simulation criteria
+    # and not binarization criteria when calling `synthesize`)
+    simulation_categories_set = {
+        "Bimodal",
+        "Discarded",
+        "Unimodal",
+    }
 
     @staticmethod
     def f_frame_or_none(str_path_or_none):
@@ -29,10 +37,10 @@ class scBoolSeqRunner(object):
         )
 
     @staticmethod
-    def f_out_file(path):
+    def f_out_file(path, suffix: str = "binarized"):
         """Default name for output file"""
         return path.parent.joinpath(
-            path.name.replace(path.suffix, f"_binarized{path.suffix}")
+            path.name.replace(path.suffix, f"_{suffix}{path.suffix}")
         ).resolve()
 
     def __init__(self, action: str, timestamp: str = ""):
@@ -54,7 +62,7 @@ class scBoolSeqRunner(object):
 
         in_file = Path(args["in_file"]).resolve()
         in_frame = self.f_frame_or_none(in_file)
-        out_file = args["output"] or self.f_out_file(in_file)
+        out_file = args.get("output") or self.f_out_file(in_file)
 
         scbs = scBoolSeq()
         scbs.data = self.f_frame_or_none(args.get("reference"))
@@ -73,7 +81,9 @@ class scBoolSeqRunner(object):
             _name = in_file.name.replace(in_file.suffix, "")
             scbs.criteria.to_csv(f"scBoolSeq_criteria_{_name}_{self.timestamp}.csv")
 
-        binarized = scbs.binarize(in_frame, alpha=args.get("alpha", 1.0))
+        binarized = scbs.binarize(
+            in_frame, alpha=args.get("alpha", 1.0), include_discarded=True
+        )
         binarized.to_csv(out_file)
 
     def synthesize(self, args):
@@ -81,6 +91,35 @@ class scBoolSeqRunner(object):
         print("synthesizing")
         for arg, val in args.items():
             print(f"arg({arg}) = {val}")
+
+        in_file = Path(args["in_file"]).resolve()
+        in_frame = self.f_frame_or_none(in_file)
+        out_file = args.get("output") or self.f_out_file(in_file, suffix="synthetic")
+
+        scbs = scBoolSeq()
+        scbs.data = self.f_frame_or_none(args.get("reference"))
+        scbs.simulation_criteria = self.f_frame_or_none(args.get("simulation_criteria"))
+        if scbs.simulation_criteria is not None:
+            _sim_categories = set(scbs.simulation_criteria["Category"].unique())
+            if not _sim_categories.issubset(self.simulation_categories_set):
+                _extra_categories = _sim_categories.difference(
+                    self.simulation_categories_set
+                )
+                raise ValueError(
+                    f"Unknown categories found in simulation_criteria: {_extra_categories}"
+                )
+
+        if not scbs._can_simulate:
+            scbs.fit().simulation_fit()
+
+        if args["dump_criteria"]:
+            _name = in_file.name.replace(in_file.suffix, "")
+            scbs.criteria.to_csv(
+                f"scBoolSeq_simulation_criteria_{_name}_{self.timestamp}.csv"
+            )
+
+        synthetic = scbs.simulate(binary_df=in_frame, n_samples=args["n_samples"])
+        synthetic.to_csv(out_file)
 
     def __call__(self, args):
         """Binarize or synthesize via scBoolSeq"""
@@ -162,13 +201,13 @@ NOTE on CSV file specs:
             "--alpha",
             type=float,
             default=1.0,
-            help="""Multiplier for IQR (float: %(default)f)""",
+            help="""Multiplier for IQR.""",
         )
         parser.add_argument(
             "--margin_quantile",
             type=float,
             default=0.25,
-            help="""Margin quantile for parametric Tukey fences (float: %(default)f)""",
+            help="""Margin quantile for parametric Tukey fences.""",
         )
         parser.add_argument(
             "--output",
@@ -251,10 +290,16 @@ NOTE on CSV file specs:
             from the binary frame `in_file`.""",
         )
         parser.add_argument(
-            "--n",
+            "--n_samples",
             type=int,
             default=1,
-            help="""Number of samples to be simulated per binary state (int: %(default)d)""",
+            help="""Number of samples to be simulated per binary state""",
+        )
+        parser.add_argument(
+            "--output",
+            type=lambda x: Path(x).resolve().as_posix(),
+            help="""The name (can be a full path) of the file in which results should
+            be stored. Defaults to `in_file`_synthetic.csv""",
         )
         parser.add_argument(
             "--dump_criteria",
