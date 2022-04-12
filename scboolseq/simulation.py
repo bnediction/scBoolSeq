@@ -12,6 +12,9 @@ import scipy.stats as ss
 import numpy as np
 import pandas as pd
 
+# TODO : remove the time import
+import time
+
 # Typing alias
 RandomWalkGenerator = Union[Iterator[Dict[str, int]], List[Dict[str, int]]]
 SampleCountSpec = Union[int, range, Iterable[int]]
@@ -233,7 +236,6 @@ def sample_from_criteria(
 
     WARNING : this function has no seeding mechanism and will use
     the module's numpy.random.Generator which is not thread-safe.
-    Expect undefined behaviour
     """
     _partial_simulation_function: Callable = functools.partial(
         _sample_sequential,
@@ -273,7 +275,8 @@ def simulate_unimodal_distribution(
     rng: Optional[_RandType] = None,
 ) -> pd.Series:
     """
-    Basically a wrapper for scipy.stats.halfnorm
+    A wrapper for scipy.stats.halfnorm, used to perform
+    biased sampling from a Boolean state.
 
     params:
     ------
@@ -297,37 +300,33 @@ def simulate_unimodal_distribution(
 def simulate_bimodal_gene(
     binary_gene: pd.Series,
     criterion: pd.Series,
-    _verbose: bool = False,
     rng: Optional[_RandType] = None,
 ) -> pd.Series:
     """
-    R
+    Simulate bimodal gene expression, by sampling the appropriate
+    modality of the Gaussian Mixture used to represent the bimodal
+    distribution of the gene.
+
+    params:
+    ------
+        * binary_gene : A fully determined (only 0 or 1 as entries) Boolean pandas series.
+        * criterion : A slice of a criteria DataFrame, containing the criterion
+                      needed in order to simulate the given gene.
+        * rng : A random number genereator instance, an integer or None.
+
+    returns:
+    -------
+        * A pandas series, resulting of performing the biased sampling over
+          the Boolean states.
     """
     rng = rng or _GLOBAL_RNG
     rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
     assert binary_gene.name == criterion.name, "Criterion and gene mismatch"
-    # binary_gene = fully_bin.loc[:, _unimod_gene]
-    # allocate array for simulated data
     simulated_normalised_expression = pd.Series(
         np.nan, index=binary_gene.index, name=criterion.name, dtype=float
     )
-    # Create masks
-    # apply is marginally faster, and more idiomatic so
-    # there is no need for :
-    # (1 - np.array([True, False, False])).astype(bool)
     one_mask = binary_gene > 0
     zero_mask = one_mask.apply(lambda x: not x)
-
-    assert sum(one_mask) + sum(zero_mask) == len(
-        binary_gene
-    ), "Floating point comparison error."
-    if _verbose:
-        print(
-            f"Lengths\n\tOnes({sum(one_mask)}) + Zeros({sum(zero_mask)}) = ArrayLength({len(binary_gene)}) *"
-        )
-        print(
-            f"Proportions\n\tOnes({sum(one_mask)/len(binary_gene)}) + Zeros({sum(zero_mask)/len(binary_gene)})"
-        )
 
     simulated_from_ones = ss.norm.rvs(
         loc=criterion["gaussian_mean2"],
@@ -346,17 +345,11 @@ def simulate_bimodal_gene(
     simulated_negative = simulated_from_zeros < 0.0
     simulated_from_zeros[simulated_negative] = 0.0
     natural_dor = sum(simulated_negative) / len(binary_gene)
-    # This does not seem to be sufficient for most cases!
 
     simulated_normalised_expression[one_mask] = simulated_from_ones
     simulated_normalised_expression[zero_mask] = simulated_from_zeros
 
-    # Correct by randomly putting values smaller than the bin threshold to zero :
-    if _verbose:
-        print(f"natural DropOutRate = {natural_dor}")
     if natural_dor < criterion["DropOutRate"]:
-        if _verbose:
-            print("Correcting DropOutRate...", end="\t")
         # check how many values do we need to put to zero
         _correction_dor = criterion["DropOutRate"] - natural_dor
 
@@ -367,10 +360,6 @@ def simulate_bimodal_gene(
             size=len(simulated_normalised_expression),
             rng=rng,
         )
-        corrected_dor = np.isclose(simulated_normalised_expression, 0).mean()
-        if _verbose:
-            print("Done")
-            print(f"Corrected DropOutRate : {corrected_dor}")
 
     return simulated_normalised_expression
 
@@ -378,41 +367,38 @@ def simulate_bimodal_gene(
 def simulate_unimodal_gene(
     binary_gene: pd.Series,
     criterion: pd.Series,
-    _verbose: bool = False,
     rng: Optional[_RandType] = None,
 ) -> pd.Series:
     """
-    R
+    Simulate unimodal gene expression from Boolean states by sampling
+    the appropriate side of a gaussian (under or above the mean).
+
+    params:
+    ------
+        * binary_gene : A fully determined (only 0 or 1 as entries) Boolean pandas series.
+        * criterion : A slice of a criteria DataFrame, containing the criterion
+                      needed in order to simulate the given gene.
+        * rng : A random number genereator instance, an integer or None.
+
+    returns:
+    -------
+        * A pandas series, resulting of performing the biased sampling over
+          the Boolean states.
     """
     rng = rng or _GLOBAL_RNG
     rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
     assert binary_gene.name == criterion.name, "Criterion and gene mismatch"
-    # binary_gene = fully_bin.loc[:, _unimod_gene]
-    # allocate array for simulated data
     simulated_normalised_expression = pd.Series(
         0.0, index=binary_gene.index, name=criterion.name, dtype=float
     )
-    # Create masks
     one_mask = binary_gene > 0
-    # change negation to 1 - one_mask ? (check if performance gain is worth it)
     zero_mask = one_mask.apply(lambda x: not x)
-
-    assert sum(one_mask) + sum(zero_mask) == len(
-        binary_gene
-    ), "Floating point comparison error."
-    if _verbose:
-        print(
-            f"Lengths\n\tOnes({sum(one_mask)}) + Zeros({sum(zero_mask)}) = ArrayLength({len(binary_gene)}) *"
-        )
-        print(
-            f"Proportions\n\tOnes({sum(one_mask)/len(binary_gene)}) + Zeros({sum(zero_mask)/len(binary_gene)})"
-        )
 
     simulated_from_ones = simulate_unimodal_distribution(
         1.0,
         mean=criterion["mean"],
         std_dev=np.sqrt(criterion["variance"]),
-        size=sum(one_mask),  # change for one_mask.sum() ?
+        size=sum(one_mask),
         rng=rng,
     )
 
@@ -424,25 +410,15 @@ def simulate_unimodal_gene(
         rng=rng,
     )
 
-    # First approach to simulating the DropOutRate,
-    # put all negative simulated values to zero
     simulated_negative = simulated_from_zeros < 0.0
     simulated_from_zeros[simulated_negative] = 0.0
     natural_dor = sum(simulated_negative) / len(binary_gene)
-    # This does not seem to be sufficient for most cases!
 
-    simulated_normalised_expression[one_mask] = simulated_from_ones
     simulated_normalised_expression[zero_mask] = simulated_from_zeros
+    simulated_normalised_expression[one_mask] = simulated_from_ones
 
-    # Correct by randomly putting values smaller than the bin threshold to zero :
-    if _verbose:
-        print(f"natural DropOutRate = {natural_dor}")
     if natural_dor < criterion["DropOutRate"]:
-        if _verbose:
-            print("Correcting DropOutRate...", end="\t")
-        # check how many values do we need to put to zero
         _correction_dor = criterion["DropOutRate"] - natural_dor
-
         # calculate a correction mask (vector of 1 and 0 at random indices,
         # according to the correction DOR)
         simulated_normalised_expression *= _dropout_mask(
@@ -450,10 +426,6 @@ def simulate_unimodal_gene(
             size=len(simulated_normalised_expression),
             rng=rng,
         )
-        corrected_dor = np.isclose(simulated_normalised_expression, 0).mean()
-        if _verbose:
-            print("Done")
-            print(f"Corrected DropOutRate : {corrected_dor}")
 
     return simulated_normalised_expression
 
@@ -533,14 +505,18 @@ def biased_simulation_from_binary_state(
     child_seeds = _seed_sequence_generator.spawn(n_threads)
     streams = [np.random.default_rng(s) for s in child_seeds]
 
-    _criteria_ls = np.array_split(simulation_criteria, n_threads)
-    _binary_ls = np.array_split(binary_df, n_threads, axis=1)
-    with mp.Pool(n_threads) as pool:
-        ret_list = pool.starmap(
-            _simulate_subset, zip(_binary_ls, _criteria_ls, streams)
+    if n_threads > 1:
+        _criteria_ls = np.array_split(simulation_criteria, n_threads)
+        _binary_ls = np.array_split(binary_df, n_threads, axis=1)
+        with mp.Pool(n_threads) as pool:
+            ret_list = pool.starmap(
+                _simulate_subset, zip(_binary_ls, _criteria_ls, streams)
+            )
+        return pd.concat(ret_list, axis=1)
+    else:
+        return _simulate_subset(
+            binary_df=binary_df, simulation_criteria=simulation_criteria, rng=streams[0]
         )
-
-    return pd.concat(ret_list, axis=1)
 
 
 def simulate_from_boolean_trajectory(
@@ -580,11 +556,21 @@ def simulate_from_boolean_trajectory(
         A tuple : (simulated_expression_dataframe, metadata)
 
     """
+    n_threads = min(abs(n_threads), mp.cpu_count()) if n_threads else mp.cpu_count()
     # for all runs to obtain the same results the seeds of each run should be fixed
     _rng = np.random.default_rng(rng_seed)
     _simulation_seeds = _rng.integers(
         123, rng_seed, size=len(boolean_trajectory_df.index)
     )
+    # Generate independent random number generators,
+    # with good quality seeds according to :
+    # https://numpy.org/doc/stable/reference/random/parallel.html
+    print("Spawning seeds...", flush=True, end="\t")
+    _seed_sequence_generator = np.random.SeedSequence(rng_seed)
+    child_seeds = _seed_sequence_generator.spawn(n_threads)
+    streams = [np.random.default_rng(s) for s in child_seeds]
+    print("Done", flush=True)
+
     _n_states = len(boolean_trajectory_df.index)
 
     # multiple dispatch for n_samples_per_state
@@ -614,55 +600,113 @@ def simulate_from_boolean_trajectory(
         )
 
     # generate synthetic samples
-    synthetic_samples = []
-    for size, rnd_walk_step, _rng_seed in zip(
-        sample_sizes, boolean_trajectory_df.iterrows(), _simulation_seeds
-    ):
-        _idx, binary_state = rnd_walk_step
+    # synthetic_samples = []
+    # for size, rnd_walk_step, _rng_seed in zip(
+    #    sample_sizes, boolean_trajectory_df.iterrows(), _simulation_seeds
+    # ):
+    #    _idx, binary_state = rnd_walk_step
 
-        synthetic_samples.append(
-            biased_simulation_from_binary_state(
-                binary_state.to_frame().T,
-                criteria_df,
-                n_samples=size,
-                n_threads=n_threads,
-                seed=_rng_seed,
-            )
-            .reset_index()
-            .rename(columns={"index": "kind"})
-        )
+    #    synthetic_samples.append(
+    #        biased_simulation_from_binary_state(
+    #            binary_state.to_frame().T,
+    #            criteria_df,
+    #            n_samples=size,
+    #            n_threads=n_threads,
+    #            seed=_rng_seed,
+    #        )
+    #        .reset_index()
+    #        .rename(columns={"index": "kind"})
+    #    )
+    # match the simulation order :
 
-    # merge all experiments into a single frame
-    synthetic_single_cell_experiment = pd.concat(
-        synthetic_samples, axis="rows", ignore_index=True
+    print("Align and split boolean frame and criteria...", flush=True, end="\t")
+    criteria_df = criteria_df.loc[boolean_trajectory_df.columns, :]
+    _criteria_ls = np.array_split(criteria_df, n_threads)
+    _binary_ls_no_sample_size = np.array_split(boolean_trajectory_df, n_threads, axis=1)
+    _binary_ls = map(
+        lambda frame, size: pd.concat(size * [frame], ignore_index=False),
+        _binary_ls_no_sample_size,
+        sample_sizes,
     )
+    print("Done", flush=True)
+    print("Enter multiprocessing pool.", flush=True)
+    with mp.Pool(n_threads) as pool:
+        raw_synthetic_samples = pool.starmap(
+            _simulate_subset, zip(_binary_ls, _criteria_ls, streams)
+        )
+    print(f"Terminate {n_threads} workers.", flush=True)
+    time.sleep(2)
 
+    # synthetic_samples = [
+    #    sample.reset_index().rename(columns={boolean_trajectory_df.index.name: "kind"})
+    #    for sample in raw_synthetic_samples
+    # ]
+    print("Concatenating all experiments into a single frame...", end="\t", flush=True)
+    synthetic_single_cell_experiment = pd.concat(
+        (
+            sample.reset_index().rename(
+                columns={boolean_trajectory_df.index.name: "kind"}
+            )
+            for sample in raw_synthetic_samples  # merge all samples into a single frame
+        ),
+        axis="rows",
+        ignore_index=True,
+    )
+    print("Done", flush=True)
+    time.sleep(2)
+
+    print("Transforming index...", sep="\t", flush=True)
     # create an informative, artificial, and unique index
     synthetic_single_cell_experiment = synthetic_single_cell_experiment.set_index(
-        synthetic_single_cell_experiment.kind
-        + "_"
-        + synthetic_single_cell_experiment.reset_index().index.map(
-            lambda x: f"obs{str(x)}"
+        map(
+            lambda idx, enum: f"{idx}_{enum}",
+            synthetic_single_cell_experiment.index,
+            list(range(1, len(synthetic_single_cell_experiment.index) + 1)),
         )
     )
+    # synthetic_single_cell_experiment = synthetic_single_cell_experiment.set_index(
+    #    synthetic_single_cell_experiment.kind
+    #    + "_"
+    #    + synthetic_single_cell_experiment.index.to_frame()
+    #    .reset_index()
+    #    .index.map(lambda x: f"obs{str(x)}")
+    # )
+    print("Done")
+    time.sleep(2)
 
+    print("Create colour map...", sep="\t", flush=True)
     # Create a colour map for different cell types
     _RGB_values = list("0123456789ABCDEF")
     color_map = {
         i: "#" + "".join([_rng.choice(_RGB_values) for j in range(6)])
         for i in boolean_trajectory_df.index.unique().to_list()
     }
+    print("Done", flush=True)
+    time.sleep(2)
 
     # Create a metadata frame
-    cell_colours = (
-        synthetic_single_cell_experiment.kind.apply(lambda x: color_map[x])
-        .to_frame()
-        .rename(columns={"kind": "label_color"})
+    print("Create metadata frame...", sep="\t", flush=True)
+    # cell_colours = (
+    #    synthetic_single_cell_experiment.kind.apply(lambda x: color_map[x])
+    #    .to_frame()
+    #    .rename(columns={"kind": "label_color"})
+    # )
+    # metadata = pd.concat(
+    #    [synthetic_single_cell_experiment.kind, cell_colours], axis="columns"
+    # )
+    # metadata = metadata.rename(columns={"kind": "label"})
+    metadata = (
+        pd.DataFrame(  # index arg should not be necessary, both series have the same ?
+            {
+                "label": synthetic_single_cell_experiment.kind,
+                "label_color": synthetic_single_cell_experiment.kind.apply(
+                    lambda x: color_map[x]
+                ),
+            }
+        )
     )
-    metadata = pd.concat(
-        [synthetic_single_cell_experiment.kind, cell_colours], axis="columns"
-    )
-    metadata = metadata.rename(columns={"kind": "label"})
+    print("Done", flush=True)
+    time.sleep(2)
     # drop the number of activated genes from the synthetic expression frame
     synthetic_single_cell_experiment = synthetic_single_cell_experiment[
         synthetic_single_cell_experiment.columns[1:]
