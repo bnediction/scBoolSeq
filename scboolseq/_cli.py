@@ -1,5 +1,6 @@
 """Command line parser for scBoolSeq"""
 
+import multiprocessing as mp
 from pathlib import Path
 import argparse
 import sys
@@ -56,9 +57,6 @@ class scBoolSeqRunner(object):
 
     def binarize(self, args):
         """binarize expression data"""
-        print("binarizing")
-        for arg, val in args.items():
-            print(f"arg({arg}) = {val}")
 
         in_file = Path(args["in_file"]).resolve()
         in_frame = self.f_frame_or_none(in_file)
@@ -67,10 +65,14 @@ class scBoolSeqRunner(object):
         scbs = scBoolSeq()
         scbs.data = self.f_frame_or_none(args.get("reference"))
         scbs.criteria = self.f_frame_or_none(args.get("criteria"))
+
         if not scbs._is_trained:
             if not scbs._has_data:
                 scbs.data = in_frame
-            scbs.fit(unimodal_margin_quantile=args.get("margin_quantile", 0.25))
+            scbs.fit(
+                n_threads=args.get("n_threads") or mp.cpu_count(),
+                unimodal_margin_quantile=args.get("margin_quantile", 0.25),
+            )
         else:
             print(
                 f"Ignoring parameter --margin_quantile={args.get('margin_quantile', 0.25)}, "
@@ -81,16 +83,17 @@ class scBoolSeqRunner(object):
             _name = in_file.name.replace(in_file.suffix, "")
             scbs.criteria.to_csv(f"scBoolSeq_criteria_{_name}_{self.timestamp}.csv")
 
+        print(f"exclude_discarded={args.get('exclude_discarded')}")
         binarized = scbs.binarize(
-            in_frame, alpha=args.get("alpha", 1.0), include_discarded=True
+            in_frame,
+            alpha=args.get("alpha", 1.0),
+            include_discarded=not args.get("exclude_discarded"),
+            n_threads=args.get("n_threads") or mp.cpu_count(),
         )
         binarized.to_csv(out_file)
 
     def synthesize(self, args):
         """synthesize RNA-Seq data from boolean dynamics"""
-        print("synthesizing")
-        for arg, val in args.items():
-            print(f"arg({arg}) = {val}")
 
         in_file = Path(args["in_file"]).resolve()
         in_frame = self.f_frame_or_none(in_file)
@@ -99,6 +102,7 @@ class scBoolSeqRunner(object):
         scbs = scBoolSeq()
         scbs.data = self.f_frame_or_none(args.get("reference"))
         scbs.simulation_criteria = self.f_frame_or_none(args.get("simulation_criteria"))
+
         if scbs.simulation_criteria is not None:
             _sim_categories = set(scbs.simulation_criteria["Category"].unique())
             if not _sim_categories.issubset(self.simulation_categories_set):
@@ -110,7 +114,9 @@ class scBoolSeqRunner(object):
                 )
 
         if not scbs._can_simulate:
-            scbs.fit().simulation_fit()
+            scbs.fit(n_threads=args.get("n_threads") or mp.cpu_count()).simulation_fit(
+                n_threads=args.get("n_threads") or mp.cpu_count(),
+            )
 
         if args["dump_criteria"]:
             _name = in_file.name.replace(in_file.suffix, "")
@@ -118,7 +124,11 @@ class scBoolSeqRunner(object):
                 f"scBoolSeq_simulation_criteria_{_name}_{self.timestamp}.csv"
             )
 
-        synthetic = scbs.simulate(binary_df=in_frame, n_samples=args["n_samples"])
+        synthetic = scbs.simulate(
+            binary_df=in_frame,
+            n_threads=args.get("n_threads") or mp.cpu_count(),
+            n_samples=args["n_samples"],
+        )
         synthetic.to_csv(out_file)
 
     def __call__(self, args):
@@ -210,6 +220,17 @@ NOTE on CSV file specs:
             help="""Margin quantile for parametric Tukey fences.""",
         )
         parser.add_argument(
+            "--n_threads",
+            type=int,
+            default=mp.cpu_count(),
+            help="""The number of parallel processes to be used.""",
+        )
+        parser.add_argument(
+            "--exclude_discarded",
+            action="store_true",
+            help="""Should discarded genes be excluded from the output file?""",
+        )
+        parser.add_argument(
             "--output",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""The name (can be a full path) of the file in which results should
@@ -294,6 +315,12 @@ NOTE on CSV file specs:
             type=int,
             default=1,
             help="""Number of samples to be simulated per binary state""",
+        )
+        parser.add_argument(
+            "--n_threads",
+            type=int,
+            default=mp.cpu_count(),
+            help="""The number of parallel processes to be used.""",
         )
         parser.add_argument(
             "--output",

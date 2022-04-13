@@ -384,7 +384,6 @@ binarize_exp <- function(exp_dataset, ref_dataset, ref_criteria, gene) {
 
     return(gene_bin)
   } else {
-
     if (dim(exp_dataset)[2] != dim(ref_criteria)[1]) {
       stop("Different number of genes")
     }
@@ -453,7 +452,6 @@ normalize_exp <- function(exp_dataset, ref_dataset, ref_criteria, gene) {
 
     return(gene_bin)
   } else {
-
     if (dim(exp_dataset)[2] != dim(ref_criteria)[1]) {
       stop("Different number of genes")
     }
