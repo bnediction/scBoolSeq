@@ -29,7 +29,7 @@ class Timer(object):
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.end = time()
-        print(f"{self.description}: {round(self.end - self.start, 5)}")
+        print(f"{self.description}: {round(self.end - self.start, 5)}", flush=True)
 
 
 class Path(_Path_):
