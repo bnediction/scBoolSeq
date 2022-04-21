@@ -12,10 +12,7 @@ import scipy.stats as ss
 import numpy as np
 import pandas as pd
 
-# TODO : remove the time import
-import time
-
-# Typing alias
+# Typing aliases
 RandomWalkGenerator = Union[Iterator[Dict[str, int]], List[Dict[str, int]]]
 SampleCountSpec = Union[int, range, Iterable[int]]
 _RandType = Union[np.random.Generator, int]
@@ -178,10 +175,12 @@ def sample_gene(
             size=n_samples,
             rng=rng,
         )
-        if enforce_dropout_rate:
-            _data *= _dropout_mask(
-                dropout_rate=criterion["DropOutRate"], size=n_samples, rng=rng
-            )
+        _negative_data = _data < 0.0
+        _data[_negative_data] = 0.0
+        natural_dor = sum(_negative_data) / len(_data)
+        if enforce_dropout_rate and natural_dor < criterion["DropOutRate"]:
+            correction_dor = criterion["DropOutRate"] - natural_dor
+            _data *= _dropout_mask(dropout_rate=correction_dor, size=n_samples, rng=rng)
     elif criterion["Category"] == "Bimodal":
         _data = _sim_bimodal(
             mean1=criterion["gaussian_mean1"],
@@ -191,10 +190,12 @@ def sample_gene(
             size=n_samples,
             rng=rng,
         )
-        if enforce_dropout_rate:
-            _data *= _dropout_mask(
-                dropout_rate=criterion["DropOutRate"], size=n_samples, rng=rng
-            )
+        _negative_data = _data < 0.0
+        _data[_negative_data] = 0.0
+        natural_dor = sum(_negative_data) / len(_data)
+        if enforce_dropout_rate and natural_dor < criterion["DropOutRate"]:
+            correction_dor = criterion["DropOutRate"] - natural_dor
+            _data *= _dropout_mask(dropout_rate=correction_dor, size=n_samples, rng=rng)
     elif criterion["Category"] == "ZeroInf":
         _data = __sim_zero_inf(_lambda=criterion["lambda"], size=n_samples, rng=rng)
     else:
@@ -635,7 +636,6 @@ def simulate_from_boolean_trajectory(
             _simulate_subset, zip(_binary_ls, _criteria_ls, streams)
         )
     print(f"Terminate {n_threads} workers.", flush=True)
-    time.sleep(2)
 
     # synthetic_samples = [
     #    sample.reset_index().rename(columns={boolean_trajectory_df.index.name: "kind"})
@@ -653,7 +653,6 @@ def simulate_from_boolean_trajectory(
         ignore_index=True,
     )
     print("Done", flush=True)
-    time.sleep(2)
 
     print("Transforming index...", sep="\t", flush=True)
     # create an informative, artificial, and unique index
@@ -672,7 +671,6 @@ def simulate_from_boolean_trajectory(
     #    .index.map(lambda x: f"obs{str(x)}")
     # )
     print("Done")
-    time.sleep(2)
 
     print("Create colour map...", sep="\t", flush=True)
     # Create a colour map for different cell types
@@ -682,7 +680,6 @@ def simulate_from_boolean_trajectory(
         for i in boolean_trajectory_df.index.unique().to_list()
     }
     print("Done", flush=True)
-    time.sleep(2)
 
     # Create a metadata frame
     print("Create metadata frame...", sep="\t", flush=True)
@@ -706,7 +703,6 @@ def simulate_from_boolean_trajectory(
         )
     )
     print("Done", flush=True)
-    time.sleep(2)
     # drop the number of activated genes from the synthetic expression frame
     synthetic_single_cell_experiment = synthetic_single_cell_experiment[
         synthetic_single_cell_experiment.columns[1:]
