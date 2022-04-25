@@ -62,7 +62,7 @@ class scBoolSeqRunner(object):
         in_frame = self.f_frame_or_none(in_file)
         out_file = args.get("output") or self.f_out_file(in_file)
 
-        scbs = scBoolSeq()
+        scbs = scBoolSeq(r_seed=args.get("rng_seed"))
         scbs.data = self.f_frame_or_none(args.get("reference"))
         scbs.criteria = self.f_frame_or_none(args.get("criteria"))
 
@@ -72,6 +72,7 @@ class scBoolSeqRunner(object):
             scbs.fit(
                 n_threads=args.get("n_threads") or mp.cpu_count(),
                 unimodal_margin_quantile=args.get("margin_quantile", 0.25),
+                dor_threshold=args.get("dor_threshold", 0.95),
             )
         else:
             print(
@@ -99,7 +100,7 @@ class scBoolSeqRunner(object):
         in_frame = self.f_frame_or_none(in_file)
         out_file = args.get("output") or self.f_out_file(in_file, suffix="synthetic")
 
-        scbs = scBoolSeq()
+        scbs = scBoolSeq(r_seed=args.get("rng_seed"))
         scbs.data = self.f_frame_or_none(args.get("reference"))
         scbs.simulation_criteria = self.f_frame_or_none(args.get("simulation_criteria"))
 
@@ -114,7 +115,10 @@ class scBoolSeqRunner(object):
                 )
 
         if not scbs._can_simulate:
-            scbs.fit(n_threads=args.get("n_threads") or mp.cpu_count()).simulation_fit(
+            scbs.fit(
+                n_threads=args.get("n_threads") or mp.cpu_count(),
+                dor_threshold=args.get("dor_threshold", 0.95),
+            ).simulation_fit(
                 n_threads=args.get("n_threads") or mp.cpu_count(),
             )
 
@@ -127,7 +131,8 @@ class scBoolSeqRunner(object):
         synthetic = scbs.simulate(
             binary_df=in_frame,
             n_threads=args.get("n_threads") or mp.cpu_count(),
-            n_samples=args["n_samples"],
+            n_samples=args.get("n_samples", 1),
+            seed=args.get("rng_seed"),
         )
         synthetic.to_csv(out_file)
 
@@ -220,10 +225,24 @@ NOTE on CSV file specs:
             help="""Margin quantile for parametric Tukey fences.""",
         )
         parser.add_argument(
+            "--dor_threshold",
+            type=float,
+            default=0.95,
+            help="""DropOutRate (DOR) threshold. All genes having a DOR
+            greater or equal to the specified value will be classified
+            as discarded (no binarization or simulation will be applied).""",
+        )
+        parser.add_argument(
             "--n_threads",
             type=int,
             default=mp.cpu_count(),
             help="""The number of parallel processes to be used.""",
+        )
+        parser.add_argument(
+            "--rng_seed",
+            type=int,
+            help="""An integer which will be used to seed both R's
+            and Python's (numpy) random number generators.""",
         )
         parser.add_argument(
             "--exclude_discarded",
@@ -311,6 +330,14 @@ NOTE on CSV file specs:
             from the binary frame `in_file`.""",
         )
         parser.add_argument(
+            "--dor_threshold",
+            type=float,
+            default=0.95,
+            help="""DropOutRate (DOR) threshold. All genes having a DOR
+            greater or equal to the specified value will be classified
+            as discarded (no binarization or simulation will be applied).""",
+        )
+        parser.add_argument(
             "--n_samples",
             type=int,
             default=1,
@@ -327,6 +354,12 @@ NOTE on CSV file specs:
             type=lambda x: Path(x).resolve().as_posix(),
             help="""The name (can be a full path) of the file in which results should
             be stored. Defaults to `in_file`_synthetic.csv""",
+        )
+        parser.add_argument(
+            "--rng_seed",
+            type=int,
+            help="""An integer which will be used to seed both R's
+            and Python's (numpy) random number generators.""",
         )
         parser.add_argument(
             "--dump_criteria",
