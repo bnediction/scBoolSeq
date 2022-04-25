@@ -230,7 +230,7 @@ def sample_from_criteria(
     criteria: pd.DataFrame,
     n_samples: int,
     enforce_dropout_rate: bool = True,
-    n_workers: int = mp.cpu_count(),
+    n_threads: int = mp.cpu_count(),
 ) -> pd.DataFrame:
     """
     Create a new expression dataframe from a criteria dataframe using multithreading
@@ -244,8 +244,8 @@ def sample_from_criteria(
         enforce_dropout_rate=enforce_dropout_rate,
     )
 
-    _df_splitted_ls: List[pd.DataFrame] = np.array_split(criteria, n_workers)
-    with mp.Pool(n_workers) as pool:
+    _df_splitted_ls: List[pd.DataFrame] = np.array_split(criteria, n_threads)
+    with mp.Pool(n_threads) as pool:
         ret_list = pool.map(_partial_simulation_function, _df_splitted_ls)
 
     return pd.concat(ret_list, axis=1)
