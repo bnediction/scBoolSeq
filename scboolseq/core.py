@@ -162,9 +162,9 @@ class scBoolSeq(object):
         self.simulation_criteria: Optional[pd.DataFrame] = simulation_criteria
         self._zero_inf_idx: pd.core.indexes.base.Index
         self._zero_inf_df: pd.DataFrame
-        self._unimodal_margin_quantile: float
-        self._dor_threshold: float
-        self._alpha: float
+        #self._unimodal_margin_quantile: float
+        #self._dor_threshold: float
+        #self._alpha: float
 
         # try loading all packages and functions, installing them upon failure
         try:
@@ -329,8 +329,8 @@ class scBoolSeq(object):
             )
         # save the unimodal margin quantile to avoid discrepancies
         # when recalculating the simulation criteria
-        self._unimodal_margin_quantile = unimodal_margin_quantile
-        self._dor_threshold = dor_threshold
+        #self._unimodal_margin_quantile = unimodal_margin_quantile
+        #self._dor_threshold = dor_threshold
 
         # the data must be instantiated before performing the R call :
         if self._has_data:
@@ -363,6 +363,7 @@ class scBoolSeq(object):
                             f"criteria_{self._addr} <- compute_criteria({', '.join(params)})"
                         )
                     )
+                self.criteria["dor_threshold"] = dor_threshold
             except RRuntimeError as _rer:
                 raise RRuntimeError(self._build_r_error_hint(_rer)) from None
 
@@ -395,21 +396,26 @@ class scBoolSeq(object):
                     ]
                 )
             )
-        if not math.isclose(self._unimodal_margin_quantile, unimodal_margin_quantile):
+        if not math.isclose(
+            # Getting the first of all unique values is safe
+            # unless the criteria dataframe has been tampered with
+            self.criteria.unimodal_margin_quantile.unique()[0],
+            unimodal_margin_quantile,
+        ):
             raise ValueError(
                 " ".join(
                     [
-                        "Specified unimodal margin quantile differs from that specified for binarization",
-                        f"{unimodal_margin_quantile} != {self._unimodal_margin_quantile}",
+                        "Specified unimodal margin quantile differs from the binarization's",
+                        f" {unimodal_margin_quantile} != {self._unimodal_margin_quantile}",
                         "The discrepancy between these two will cause inconsistent results",
                     ]
                 )
             )
-        if not math.isclose(self._dor_threshold, dor_threshold):
+        if not math.isclose(self.criteria.dor_threshold.unique()[0], dor_threshold):
             raise ValueError(
                 " ".join(
                     [
-                        "Specified DropOutRate threshold differs from that specified for binarization",
+                        "Specified DropOutRate threshold differs from the binarization's",
                         f"{dor_threshold} != {self._dor_threshold}",
                         "The discrepancy between these two will cause inconsistent results",
                     ]
@@ -537,7 +543,7 @@ class scBoolSeq(object):
 
         data = data.copy(deep=True)
         self._check_df_contains_no_nan(_df=data, _parameter_name="data")
-        self._alpha = alpha
+        #self._alpha = alpha
 
         # verify binarised genes are contained in the simulation criteria index
         if not all(gene in self.criteria.index for gene in data.columns):
@@ -562,7 +568,7 @@ class scBoolSeq(object):
             )
 
         _binary_ls = np.array_split(data, n_threads, axis=1)
-        _partial_binarize = partial(binarization_binarize, self.criteria, self._alpha)
+        _partial_binarize = partial(binarization_binarize, self.criteria, alpha)
         with multiprocessing.Pool(n_threads) as pool:
             ret_list = pool.map(_partial_binarize, _binary_ls)
 
