@@ -5,7 +5,7 @@ from setuptools import find_packages
 from setuptools import setup
 
 NAME = "scBoolSeq"
-VERSION = "0.1.0"
+VERSION = "9999"
 
 setup(
     name=NAME,
@@ -28,9 +28,14 @@ setup(
         "pandas",
         "matplotlib",
         "toml",
-        "plotnine",
         "rpy2",
+        "tzlocal",
     ],
-    package_data={'profile_binr': ['_R/*.R']}
+    entry_points = {
+        "console_scripts": [
+            "scBoolSeq=scboolseq.__main__:main"
+        ],
+    },
+    package_data={'scboolseq': ['_R/*.R']}
 )
 

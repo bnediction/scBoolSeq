@@ -1,0 +1,42 @@
+{% set name = "scBoolSeq" %}
+{% set version = "9999" %}
+
+package:
+  name: '{{ name|lower }}'
+  version: '{{ version }}'
+
+source:
+  path: ../
+
+build:
+  script: python -m pip install --no-deps --ignore-installed .
+  noarch: python
+
+requirements:
+  host:
+    - python
+    - pip
+
+  run:
+    - python
+    - matplotlib
+    - pandas
+    - rpy2
+    - toml
+    - tzlocal
+    - r-base >=4.1
+    - r-bigmemory
+    - r-diptest
+    - r-dosnow
+    - r-dplyr
+    - r-foreach
+    - r-glue
+    - r-magrittr
+    - r-mclust
+    - r-moments
+    - r-tibble
+    - r-tidyr
+
+about:
+  home: https://github.com/bnediction/scboolseq
+  summary: "scRNA-Seq data binarisation and synthetic generation from Boolean dynamics"
