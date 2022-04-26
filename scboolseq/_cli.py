@@ -35,28 +35,36 @@ class scBoolSeqRunner(object):
         "Discarded",
         "Unimodal",
     }
+    suffix_separator_dict = {"csv": ",", "tsv": "\t"}
 
-    # @staticmethod
-    def f_frame_or_none(self, str_path_or_none):
+    def validate_file_suffixes(self, path, param_name=None):
+        """Validate the parameter's suffix.
+        Return the list of suffixes of path if validation passes.
+        Raise ValueError upon failed validation."""
+        _suffixes = [suffix.replace(".", "").lower() for suffix in path.suffixes]
+        if not any(_s in _suffixes for _s in self.suffix_separator_dict):
+            _msg1 = "Unknown file extension, please provide a csv or tsv file."
+            _msg1 += f" (param {param_name})" if param_name is not None else ""
+            raise ValueError(_msg1)
+        if all(_s in _suffixes for _s in self.suffix_separator_dict):
+            _msg2 = "Ambiguous file name, cannot determine file type. Aborting."
+            _msg2 += f" (param {param_name})" if param_name is not None else ""
+            raise ValueError(_msg2)
+
+        return _suffixes
+
+    def f_frame_or_none(self, str_path_or_none, param_name=None):
         """Helper function, return a DataFrame if the path parameter has been parsed."""
-        # valid suffixes
-        file_suffixes = {"csv": ",", "tsv": "\t"}
         if str_path_or_none is None:
             return str_path_or_none
         else:
             _csv_kw = {}
             _path = Path(str_path_or_none)
-            _suffixes = [suffix.replace(".", "").lower() for suffix in _path.suffixes]
-            if not any(_s in _suffixes for _s in file_suffixes.keys()):
-                raise ValueError(
-                    "Unknown file extension, please provide a csv or tsv file"
-                )
-            if all(_s in _suffixes for _s in file_suffixes.keys()):
-                raise ValueError(
-                    "Ambiguous file name, cannot determine file type. Aborting"
-                )
+            _suffixes = self.validate_file_suffixes(_path, param_name=param_name)
             return pd.read_csv(
-                str_path_or_none, index_col=0, sep=file_suffixes[_suffixes[0]]
+                str_path_or_none,
+                index_col=0,
+                sep=self.suffix_separator_dict[_suffixes[0]],
             )
 
     @staticmethod
@@ -82,7 +90,11 @@ class scBoolSeqRunner(object):
 
         in_file = Path(args["in_file"]).resolve()
         in_frame = self.f_frame_or_none(in_file)
-        out_file = args.get("output") or self.f_out_file(in_file)
+        out_file = (
+            Path(args.get("output")).resolve()
+            if args.get("output")
+            else self.f_out_file(in_file)
+        )
 
         scbs = scBoolSeq(r_seed=args.get("rng_seed"))
         scbs.data = self.f_frame_or_none(args.get("reference"))
@@ -104,7 +116,10 @@ class scBoolSeqRunner(object):
             )
         if args["dump_criteria"]:
             _name = in_file.name.replace(in_file.suffix, "")
-            scbs.criteria.to_csv(f"scBoolSeq_criteria_{_name}_{self.timestamp}.csv")
+            scbs.criteria.to_csv(
+                f"scBoolSeq_criteria_{_name}_{self.timestamp}{in_file.suffix}",
+                sep=self.suffix_separator_dict[self.validate_file_suffixes(in_file)[0]],
+            )
 
         binarized = scbs.binarize(
             in_frame,
@@ -112,14 +127,29 @@ class scBoolSeqRunner(object):
             include_discarded=not args.get("exclude_discarded"),
             n_threads=args.get("n_threads") or mp.cpu_count(),
         )
-        binarized.to_csv(out_file)
+        _suffix = out_file.suffix.lower().replace(".", "")
+        _out_separator = self.suffix_separator_dict["csv"]
+        if _suffix not in self.suffix_separator_dict:
+            print("WARNING: Unknown output file extension, defaulting to csv")
+        else:
+            _out_separator = self.suffix_separator_dict[
+                out_file.suffix.lower().replace(".", "")
+            ]
+        binarized.to_csv(
+            out_file,
+            sep=_out_separator,
+        )
 
     def synthesize(self, args):
         """synthesize RNA-Seq data from boolean dynamics"""
 
         in_file = Path(args["in_file"]).resolve()
         in_frame = self.f_frame_or_none(in_file)
-        out_file = args.get("output") or self.f_out_file(in_file, suffix="synthetic")
+        out_file = (
+            Path(args.get("output")).resolve()
+            if args.get("output")
+            else self.f_out_file(in_file)
+        )
 
         scbs = scBoolSeq(r_seed=args.get("rng_seed"))
         scbs.data = self.f_frame_or_none(args.get("reference"))
@@ -146,8 +176,9 @@ class scBoolSeqRunner(object):
 
         if args["dump_criteria"]:
             _name = in_file.name.replace(in_file.suffix, "")
-            scbs.criteria.to_csv(
-                f"scBoolSeq_simulation_criteria_{_name}_{self.timestamp}.csv"
+            scbs.simulation_criteria.to_csv(
+                f"scBoolSeq_simulation_criteria_{_name}_{self.timestamp}{in_file.suffix}",
+                sep=self.suffix_separator_dict[self.validate_file_suffixes(in_file)[0]],
             )
 
         synthetic = scbs.simulate(
@@ -156,7 +187,18 @@ class scBoolSeqRunner(object):
             n_samples=args.get("n_samples", 1),
             seed=args.get("rng_seed"),
         )
-        synthetic.to_csv(out_file)
+        _suffix = out_file.suffix.lower().replace(".", "")
+        _out_separator = self.suffix_separator_dict["csv"]
+        if _suffix not in self.suffix_separator_dict:
+            print("WARNING: Unknown output file extension, defaulting to csv")
+        else:
+            _out_separator = self.suffix_separator_dict[
+                out_file.suffix.lower().replace(".", "")
+            ]
+        synthetic.to_csv(
+            out_file,
+            sep=_out_separator,
+        )
 
     def __call__(self, args):
         """Binarize or synthesize via scBoolSeq"""
@@ -175,12 +217,12 @@ class scBoolSeqCLIParser(object):
             usage="""scboolseq <command> [<args>]
 
 Available commands:
-\t* binarize\t  Binarize a RNA-Seq dataset.
+\t* binarize\t Binarize a RNA-Seq dataset.
 \t* synthesize\t Simulate a RNA-Seq experiment from Boolean dynamics.
 \t* from_file\t Repeat a binarization or synthethic generation experiment, based on a config file.
 
-NOTE on CSV file specs:
-* Assumed to use the standard separator for columns ','.
+NOTE on TSV/CSV file specs:
+* If '.csv', the file is assumed to use the standard separator for columns ','.
 * The index is assumed to be the first column.
 """,
         )
