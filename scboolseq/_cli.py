@@ -214,7 +214,7 @@ class scBoolSeqCLIParser(object):
             description="""
                 scBoolSeq: bulk and single-cell RNA-Seq data binarization and synthetic 
                 generation from Boolean dynamics.""",
-            usage="""scboolseq <command> [<args>]
+            usage="""scBoolSeq <command> [<args>]
 
 Available commands:
 \t* binarize\t Binarize a RNA-Seq dataset.
