@@ -12,6 +12,14 @@ import pandas as pd
 # local relative import
 from .core import scBoolSeq
 
+_YIELD_TIMESTAMP = (
+    lambda: str(dt.datetime.now())
+    .split(".", maxsplit=1)[0]
+    .replace(" ", "_")
+    .replace(":", "h", 1)
+    .replace(":", "m", 1)
+)
+
 
 class scBoolSeqRunner(object):
     """Runner used to call scboolseq.core.scBoolSeq using
@@ -28,14 +36,28 @@ class scBoolSeqRunner(object):
         "Unimodal",
     }
 
-    @staticmethod
-    def f_frame_or_none(str_path_or_none):
+    # @staticmethod
+    def f_frame_or_none(self, str_path_or_none):
         """Helper function, return a DataFrame if the path parameter has been parsed."""
-        return (
-            pd.read_csv(str_path_or_none, index_col=0)
-            if str_path_or_none is not None
-            else str_path_or_none
-        )
+        # valid suffixes
+        file_suffixes = {"csv": ",", "tsv": "\t"}
+        if str_path_or_none is None:
+            return str_path_or_none
+        else:
+            _csv_kw = {}
+            _path = Path(str_path_or_none)
+            _suffixes = [suffix.replace(".", "").lower() for suffix in _path.suffixes]
+            if not any(_s in _suffixes for _s in file_suffixes.keys()):
+                raise ValueError(
+                    "Unknown file extension, please provide a csv or tsv file"
+                )
+            if all(_s in _suffixes for _s in file_suffixes.keys()):
+                raise ValueError(
+                    "Ambiguous file name, cannot determine file type. Aborting"
+                )
+            return pd.read_csv(
+                str_path_or_none, index_col=0, sep=file_suffixes[_suffixes[0]]
+            )
 
     @staticmethod
     def f_out_file(path, suffix: str = "binarized"):
@@ -84,7 +106,6 @@ class scBoolSeqRunner(object):
             _name = in_file.name.replace(in_file.suffix, "")
             scbs.criteria.to_csv(f"scBoolSeq_criteria_{_name}_{self.timestamp}.csv")
 
-        print(f"exclude_discarded={args.get('exclude_discarded')}")
         binarized = scbs.binarize(
             in_frame,
             alpha=args.get("alpha", 1.0),
@@ -103,6 +124,7 @@ class scBoolSeqRunner(object):
         scbs = scBoolSeq(r_seed=args.get("rng_seed"))
         scbs.data = self.f_frame_or_none(args.get("reference"))
         scbs.simulation_criteria = self.f_frame_or_none(args.get("simulation_criteria"))
+        scbs._check_df_contains_no_nan(in_frame, "in_file")
 
         if scbs.simulation_criteria is not None:
             _sim_categories = set(scbs.simulation_criteria["Category"].unique())
@@ -190,7 +212,7 @@ NOTE on CSV file specs:
             "in_file",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A csv file containing a column for each gene and a line for each observation (cell/sample).
+            A csv/tsv file containing a column for each gene and a line for each observation (cell/sample).
             Expression data must be normalized before using this tool.""",
         )
         _ref_data_or_criteria = parser.add_mutually_exclusive_group(required=False)
@@ -198,7 +220,7 @@ NOTE on CSV file specs:
             "--reference",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A "reference" csv file containing a column for each gene and a line for each observation (cell/sample).
+            A "reference" csv/tsv file containing a column for each gene and a line for each observation (cell/sample).
             The "reference" will be used to compute the criteria needed for binarization.
             Expression data must be normalized before using this tool.""",
         )
@@ -206,7 +228,7 @@ NOTE on CSV file specs:
             "--criteria",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A "criteria" csv file, previously computed using this tool,
+            A "criteria" csv/tsv file, previously computed using this tool,
             having the default columns (or any extra criteria added by the user, which will
             be ignored) and a row for at least each gene contained in `in_file` (criteria for
             extra genes will simply be ignored).
@@ -253,7 +275,7 @@ NOTE on CSV file specs:
             "--output",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""The name (can be a full path) of the file in which results should
-            be stored. Defaults to `in_file`_binarized.csv""",
+            be stored. Defaults to `in_file`_binarized.csv/tsv""",
         )
         parser.add_argument(
             "--dump_criteria",
@@ -271,7 +293,7 @@ NOTE on CSV file specs:
         # ignore the command and the subcommand, parse all options :
         args = dict(vars(parser.parse_args(sys.argv[2:])))
         args.update({"action": "binarize"})
-        _timestamp = str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
+        _timestamp = _YIELD_TIMESTAMP()
 
         if args["dump_config"]:
             _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
@@ -302,7 +324,7 @@ NOTE on CSV file specs:
             "in_file",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A csv file containing a column for each gene and a line for each observation 
+            A csv/tsv file containing a column for each gene and a line for each observation 
             (an observation here is defined as a FULLY DETERMINED Boolean state). Preferrably,
             Boolean states should be represented as zeros and ones.
             """,
@@ -313,7 +335,7 @@ NOTE on CSV file specs:
             "--reference",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A "reference" csv file containing a column for each gene and a line for each observation (cell/sample).
+            A "reference" csv/tsv file containing a column for each gene and a line for each observation (cell/sample).
             The "reference" will be used to compute the `simulation_criteria` needed in order to perform biased sampling
             and simulation.
             Expression data must be normalized before using this tool.""",
@@ -322,7 +344,7 @@ NOTE on CSV file specs:
             "--simulation_criteria",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A "simulation_criteria" csv file, previously computed using this tool,
+            A "simulation_criteria" csv/tsv file, previously computed using this tool,
             having the default columns (or any extra criteria added by the user, which will
             be ignored) and a row for at least each gene contained in `in_file` (criteria for
             extra genes will simply be ignored).
@@ -385,7 +407,7 @@ NOTE on CSV file specs:
             )
             sys.exit(1)
         args.update({"action": "synthesize"})
-        _timestamp = str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
+        _timestamp = _YIELD_TIMESTAMP()
 
         if args["dump_config"]:
             _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
@@ -442,7 +464,7 @@ NOTE on CSV file specs:
             )
             sys.exit(1)
 
-        _timestamp = str(dt.datetime.now()).split(".", maxsplit=1)[0].replace(" ", "_")
+        _timestamp = _YIELD_TIMESTAMP
         if args["dump_config"]:
             _config_dest = f"scBoolSeq_experiment_config_{_timestamp}.toml"
             if Path(_config_dest).resolve().exists():
