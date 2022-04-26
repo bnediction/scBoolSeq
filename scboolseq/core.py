@@ -137,9 +137,9 @@ class scBoolSeq(object):
                     [
                         f"Parameter `{_parameter_name}` has {_na_count} NaN entries",
                         "this will cause undefined behaviour when computing criteria",
-                        "or simulating expression data."
-                        "Please verify that all entries of your dataframe",
-                        "are valid numerical entries.",
+                        "or simulating expression data. "
+                        "Please verify that all entries of your dataframe ",
+                        "are valid numerical entries. ",
                     ]
                 )
             )
