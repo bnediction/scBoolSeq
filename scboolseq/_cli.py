@@ -2,6 +2,7 @@
 
 import multiprocessing as mp
 from pathlib import Path
+from functools import reduce
 import argparse
 import sys
 import datetime as dt
@@ -71,7 +72,7 @@ class scBoolSeqRunner(object):
     def f_out_file(path, suffix: str = "binarized"):
         """Default name for output file"""
         return path.parent.joinpath(
-            path.name.replace(path.suffix, f"_{suffix}{path.suffix}")
+            path.name.replace(path.suffix, f"_{suffix}{path.suffixes[0]}")
         ).resolve()
 
     def __init__(self, action: str, timestamp: str = ""):
@@ -89,7 +90,8 @@ class scBoolSeqRunner(object):
         """binarize expression data"""
 
         in_file = Path(args["in_file"]).resolve()
-        in_frame = self.f_frame_or_none(in_file)
+        _in_frame = self.f_frame_or_none(in_file)
+        in_frame = _in_frame.T if args.get("transpose_in", False) else _in_frame
         out_file = (
             Path(args.get("output")).resolve()
             if args.get("output")
@@ -97,7 +99,10 @@ class scBoolSeqRunner(object):
         )
 
         scbs = scBoolSeq(r_seed=args.get("rng_seed"))
-        scbs.data = self.f_frame_or_none(args.get("reference"))
+        _data = self.f_frame_or_none(args.get("reference"))
+        scbs.data = (
+            _data.T if _data is not None and args.get("transpose_ref", False) else _data
+        )
         scbs.criteria = self.f_frame_or_none(args.get("criteria"))
 
         if not scbs._is_trained:
@@ -115,18 +120,21 @@ class scBoolSeqRunner(object):
                 sep=" ",
             )
         if args["dump_criteria"]:
-            _name = in_file.name.replace(in_file.suffix, "")
+            _name = reduce(
+                lambda xx, yy: xx.replace(yy, ""), [in_file.name, *in_file.suffixes]
+            )
             scbs.criteria.to_csv(
-                f"scBoolSeq_criteria_{_name}_{self.timestamp}{in_file.suffix}",
+                f"scBoolSeq_criteria_{_name}_{self.timestamp}{in_file.suffixes[0]}",
                 sep=self.suffix_separator_dict[self.validate_file_suffixes(in_file)[0]],
             )
 
-        binarized = scbs.binarize(
+        _binarized = scbs.binarize(
             in_frame,
             alpha=args.get("alpha", 1.0),
             include_discarded=not args.get("exclude_discarded"),
             n_threads=args.get("n_threads") or mp.cpu_count(),
         )
+        binarized = _binarized.T if args.get("transpose_out") else _binarized
         _suffix = out_file.suffix.lower().replace(".", "")
         _out_separator = self.suffix_separator_dict["csv"]
         if _suffix not in self.suffix_separator_dict:
@@ -144,15 +152,19 @@ class scBoolSeqRunner(object):
         """synthesize RNA-Seq data from boolean dynamics"""
 
         in_file = Path(args["in_file"]).resolve()
-        in_frame = self.f_frame_or_none(in_file)
+        _in_frame = self.f_frame_or_none(in_file)
+        in_frame = _in_frame.T if args.get("transpose_in", False) else _in_frame
         out_file = (
             Path(args.get("output")).resolve()
             if args.get("output")
-            else self.f_out_file(in_file)
+            else self.f_out_file(in_file, suffix="synthetic")
         )
 
         scbs = scBoolSeq(r_seed=args.get("rng_seed"))
-        scbs.data = self.f_frame_or_none(args.get("reference"))
+        _data = self.f_frame_or_none(args.get("reference"))
+        scbs.data = (
+            _data.T if _data is not None and args.get("transpose_ref", False) else _data
+        )
         scbs.simulation_criteria = self.f_frame_or_none(args.get("simulation_criteria"))
         scbs._check_df_contains_no_nan(in_frame, "in_file")
 
@@ -175,18 +187,21 @@ class scBoolSeqRunner(object):
             )
 
         if args["dump_criteria"]:
-            _name = in_file.name.replace(in_file.suffix, "")
+            _name = reduce(
+                lambda xx, yy: xx.replace(yy, ""), [in_file.name, *in_file.suffixes]
+            )
             scbs.simulation_criteria.to_csv(
-                f"scBoolSeq_simulation_criteria_{_name}_{self.timestamp}{in_file.suffix}",
+                f"scBoolSeq_simulation_criteria_{_name}_{self.timestamp}{in_file.suffixes[0]}",
                 sep=self.suffix_separator_dict[self.validate_file_suffixes(in_file)[0]],
             )
 
-        synthetic = scbs.simulate(
+        _synthetic = scbs.simulate(
             binary_df=in_frame,
             n_threads=args.get("n_threads") or mp.cpu_count(),
             n_samples=args.get("n_samples", 1),
             seed=args.get("rng_seed"),
         )
+        synthetic = _synthetic.T if args.get("transpose_out", False) else _synthetic
         _suffix = out_file.suffix.lower().replace(".", "")
         _out_separator = self.suffix_separator_dict["csv"]
         if _suffix not in self.suffix_separator_dict:
@@ -246,8 +261,8 @@ NOTE on TSV/CSV file specs:
                 to each one of the two modalities. 
                 * Unimodal and Zero-Inflated genes: Binarization based on parametric outlier
                 assignment. By default, Tukey Fences [Q1 - alpha * IQR, Q3 + alpha * IQR],
-                with (alpha == 1); The margin quantile (q25 yields Q1 and Q3) and alpha parameter
-                can be optionally specified via the command line interface.""",
+                with (alpha == 1); The margin quantile (q25 yields Q1 and Q3) and alpha parameters
+                can be specified as detailed below.""",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
         parser.add_argument(
@@ -256,6 +271,32 @@ NOTE on TSV/CSV file specs:
             help="""
             A csv/tsv file containing a column for each gene and a line for each observation (cell/sample).
             Expression data must be normalized before using this tool.""",
+        )
+        parser.add_argument(
+            "--transpose_in",
+            action="store_true",
+            help="""
+            Does IN_FILE have genes stored as rows and observations as columns?
+            """,
+        )
+        parser.add_argument(
+            "--transpose_out",
+            action="store_true",
+            help="""
+            Should the OUTPUT have the genes stored as rows and the observation as columns?
+            """,
+        )
+        parser.add_argument(
+            "--transpose_ref",
+            action="store_true",
+            help="""
+            Does REFERENCE have genes stored as rows and observations as columns?
+            """,
+        )
+        parser.add_argument(
+            "--transpose_all",
+            action="store_true",
+            help="""Shorthand for simultaneously specifying the three transpose flags.""",
         )
         _ref_data_or_criteria = parser.add_mutually_exclusive_group(required=False)
         _ref_data_or_criteria.add_argument(
@@ -334,6 +375,8 @@ NOTE on TSV/CSV file specs:
         )
         # ignore the command and the subcommand, parse all options :
         args = dict(vars(parser.parse_args(sys.argv[2:])))
+        if args["transpose_all"]:
+            args["tanspose_in"] = args["transpose_out"] = args["transpose_ref"] = True
         args.update({"action": "binarize"})
         _timestamp = _YIELD_TIMESTAMP()
 
@@ -370,6 +413,32 @@ NOTE on TSV/CSV file specs:
             (an observation here is defined as a FULLY DETERMINED Boolean state). Preferrably,
             Boolean states should be represented as zeros and ones.
             """,
+        )
+        parser.add_argument(
+            "--transpose_in",
+            action="store_true",
+            help="""
+            Does IN_FILE have genes stored as rows and observations as columns?
+            """,
+        )
+        parser.add_argument(
+            "--transpose_out",
+            action="store_true",
+            help="""
+            Should the OUTPUT have the genes stored as rows and the observation as columns?
+            """,
+        )
+        parser.add_argument(
+            "--transpose_ref",
+            action="store_true",
+            help="""
+            Does REFERENCE have genes stored as rows and observations as columns?
+            """,
+        )
+        parser.add_argument(
+            "--transpose_all",
+            action="store_true",
+            help="""Shorthand for simultaneously specifying the three transpose flags.""",
         )
         _ref_data_or_criteria = parser.add_mutually_exclusive_group(required=False)
         _reference_mandatory_options = ("reference", "simulation_criteria")
