@@ -197,7 +197,7 @@ class scBoolSeq(object):
     def __repr__(self):
         _attrs = (
             f"has_data={self._has_data}",
-            f"is_trained={self._is_trained}",
+            f"can_binarize={self._is_trained}",
             f"can_simulate={self._can_simulate}",
         )
         return f"scBoolSeq({', '.join(_attrs)})"
