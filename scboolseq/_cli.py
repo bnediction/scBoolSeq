@@ -91,7 +91,7 @@ class scBoolSeqRunner(object):
 
         in_file = Path(args["in_file"]).resolve()
         _in_frame = self.f_frame_or_none(in_file)
-        in_frame = _in_frame.T if args.get("transpose_in", False) else _in_frame
+        in_frame = _in_frame.T if args.get("genes_are_rows", False) else _in_frame
         out_file = (
             Path(args.get("output")).resolve()
             if args.get("output")
@@ -101,7 +101,9 @@ class scBoolSeqRunner(object):
         scbs = scBoolSeq(r_seed=args.get("rng_seed"))
         _data = self.f_frame_or_none(args.get("reference"))
         scbs.data = (
-            _data.T if _data is not None and args.get("transpose_ref", False) else _data
+            _data.T
+            if _data is not None and args.get("genes_are_rows", False)
+            else _data
         )
         scbs.criteria = self.f_frame_or_none(args.get("criteria"))
 
@@ -134,7 +136,7 @@ class scBoolSeqRunner(object):
             include_discarded=not args.get("exclude_discarded"),
             n_threads=args.get("n_threads") or mp.cpu_count(),
         )
-        binarized = _binarized.T if args.get("transpose_out") else _binarized
+        binarized = _binarized.T if args.get("genes_are_rows") else _binarized
         _suffix = out_file.suffix.lower().replace(".", "")
         _out_separator = self.suffix_separator_dict["csv"]
         if _suffix not in self.suffix_separator_dict:
@@ -153,7 +155,7 @@ class scBoolSeqRunner(object):
 
         in_file = Path(args["in_file"]).resolve()
         _in_frame = self.f_frame_or_none(in_file)
-        in_frame = _in_frame.T if args.get("transpose_in", False) else _in_frame
+        in_frame = _in_frame.T if args.get("genes_are_rows", False) else _in_frame
         out_file = (
             Path(args.get("output")).resolve()
             if args.get("output")
@@ -163,7 +165,9 @@ class scBoolSeqRunner(object):
         scbs = scBoolSeq(r_seed=args.get("rng_seed"))
         _data = self.f_frame_or_none(args.get("reference"))
         scbs.data = (
-            _data.T if _data is not None and args.get("transpose_ref", False) else _data
+            _data.T
+            if _data is not None and args.get("genes_are_rows", False)
+            else _data
         )
         scbs.simulation_criteria = self.f_frame_or_none(args.get("simulation_criteria"))
         scbs._check_df_contains_no_nan(in_frame, "in_file")
@@ -201,7 +205,7 @@ class scBoolSeqRunner(object):
             n_samples=args.get("n_samples", 1),
             seed=args.get("rng_seed"),
         )
-        synthetic = _synthetic.T if args.get("transpose_out", False) else _synthetic
+        synthetic = _synthetic.T if args.get("genes_are_rows", False) else _synthetic
         _suffix = out_file.suffix.lower().replace(".", "")
         _out_separator = self.suffix_separator_dict["csv"]
         if _suffix not in self.suffix_separator_dict:
@@ -242,6 +246,8 @@ NOTE on TSV/CSV file specs:
 """,
         )
         self.main_parser.add_argument("command", help="Subcommand to run")
+        # Used to prevent users from binarizing observation instead of gene expression
+        self._disposition_mandatory_options = ("genes_are_columns", "genes_are_rows")
         # parse_args defaults to [1:] for args
         # exclude the rest of the args too, or validation will fail
         args = self.main_parser.parse_args(sys.argv[1:2])
@@ -251,6 +257,20 @@ NOTE on TSV/CSV file specs:
             sys.exit(1)
         # dispatch the specified command
         getattr(self, args.command)()
+
+    def _verify_mandatory_mutually_exclusive_options(
+        self, parsed_args_dict, options, parser
+    ):
+        """Check that one of the two mandatory mutually exclusive
+        options has been specified. Exit with an informative help message."""
+        if not any(parsed_args_dict.get(_key) for _key in options):
+            parser.print_help()
+            print(
+                f"Please specify either --{options[0]}",
+                f"or --{options[1]}",
+                sep=" ",
+            )
+            sys.exit(1)
 
     def binarize(self):
         """Binarize log2(CPM + 1) expression data."""
@@ -272,31 +292,16 @@ NOTE on TSV/CSV file specs:
             A csv/tsv file containing a column for each gene and a line for each observation (cell/sample).
             Expression data must be normalized before using this tool.""",
         )
-        parser.add_argument(
-            "--transpose_in",
+        _genes_columns_or_rows = parser.add_mutually_exclusive_group(required=False)
+        _genes_columns_or_rows.add_argument(
+            "--genes-are-columns",
             action="store_true",
-            help="""
-            Does IN_FILE have genes stored as rows and observations as columns?
-            """,
+            help="""Are genes stored as columns and observations as rows?""",
         )
-        parser.add_argument(
-            "--transpose_out",
+        _genes_columns_or_rows.add_argument(
+            "--genes-are-rows",
             action="store_true",
-            help="""
-            Should the OUTPUT have the genes stored as rows and the observation as columns?
-            """,
-        )
-        parser.add_argument(
-            "--transpose_ref",
-            action="store_true",
-            help="""
-            Does REFERENCE have genes stored as rows and observations as columns?
-            """,
-        )
-        parser.add_argument(
-            "--transpose_all",
-            action="store_true",
-            help="""Shorthand for simultaneously specifying the three transpose flags.""",
+            help="""Are genes stored as rows and observations as columns?""",
         )
         _ref_data_or_criteria = parser.add_mutually_exclusive_group(required=False)
         _ref_data_or_criteria.add_argument(
@@ -324,13 +329,13 @@ NOTE on TSV/CSV file specs:
             help="""Multiplier for IQR.""",
         )
         parser.add_argument(
-            "--margin_quantile",
+            "--margin-quantile",
             type=float,
             default=0.25,
             help="""Margin quantile for parametric Tukey fences.""",
         )
         parser.add_argument(
-            "--dor_threshold",
+            "--dor-threshold",
             type=float,
             default=0.95,
             help="""DropOutRate (DOR) threshold. All genes having a DOR
@@ -338,19 +343,19 @@ NOTE on TSV/CSV file specs:
             as discarded (no binarization or simulation will be applied).""",
         )
         parser.add_argument(
-            "--n_threads",
+            "--n-threads",
             type=int,
             default=mp.cpu_count(),
             help="""The number of parallel processes to be used.""",
         )
         parser.add_argument(
-            "--rng_seed",
+            "--rng-seed",
             type=int,
             help="""An integer which will be used to seed both R's
             and Python's (numpy) random number generators.""",
         )
         parser.add_argument(
-            "--exclude_discarded",
+            "--exclude-discarded",
             action="store_true",
             help="""Should discarded genes be excluded from the output file?""",
         )
@@ -361,13 +366,13 @@ NOTE on TSV/CSV file specs:
             be stored. Defaults to `in_file`_binarized.csv/tsv""",
         )
         parser.add_argument(
-            "--dump_criteria",
+            "--dump-criteria",
             action="store_true",
             help="""Should the computed criteria be saved to a csv file
             to be reutilized afterwards?""",
         )
         parser.add_argument(
-            "--dump_config",
+            "--dump-config",
             action="store_true",
             help="""
             Should the specified CLI arguments be dumped to a toml configuration
@@ -375,8 +380,11 @@ NOTE on TSV/CSV file specs:
         )
         # ignore the command and the subcommand, parse all options :
         args = dict(vars(parser.parse_args(sys.argv[2:])))
-        if args["transpose_all"]:
-            args["tanspose_in"] = args["transpose_out"] = args["transpose_ref"] = True
+        self._verify_mandatory_mutually_exclusive_options(
+            args, self._disposition_mandatory_options, parser
+        )
+        if args.get("genes_are_columns") is not None:
+            args["genes_are_rows"] = not args.pop("genes_are_columns")
         args.update({"action": "binarize"})
         _timestamp = _YIELD_TIMESTAMP()
 
@@ -414,31 +422,16 @@ NOTE on TSV/CSV file specs:
             Boolean states should be represented as zeros and ones.
             """,
         )
-        parser.add_argument(
-            "--transpose_in",
+        _genes_columns_or_rows = parser.add_mutually_exclusive_group(required=False)
+        _genes_columns_or_rows.add_argument(
+            "--genes-are-columns",
             action="store_true",
-            help="""
-            Does IN_FILE have genes stored as rows and observations as columns?
-            """,
+            help="""Are genes stored as columns and observations as rows?""",
         )
-        parser.add_argument(
-            "--transpose_out",
+        _genes_columns_or_rows.add_argument(
+            "--genes-are-rows",
             action="store_true",
-            help="""
-            Should the OUTPUT have the genes stored as rows and the observation as columns?
-            """,
-        )
-        parser.add_argument(
-            "--transpose_ref",
-            action="store_true",
-            help="""
-            Does REFERENCE have genes stored as rows and observations as columns?
-            """,
-        )
-        parser.add_argument(
-            "--transpose_all",
-            action="store_true",
-            help="""Shorthand for simultaneously specifying the three transpose flags.""",
+            help="""Are genes stored as rows and observations as columns?""",
         )
         _ref_data_or_criteria = parser.add_mutually_exclusive_group(required=False)
         _reference_mandatory_options = ("reference", "simulation_criteria")
@@ -452,7 +445,7 @@ NOTE on TSV/CSV file specs:
             Expression data must be normalized before using this tool.""",
         )
         _ref_data_or_criteria.add_argument(
-            "--simulation_criteria",
+            "--simulation-criteria",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
             A "simulation_criteria" csv/tsv file, previously computed using this tool,
@@ -463,7 +456,7 @@ NOTE on TSV/CSV file specs:
             from the binary frame `in_file`.""",
         )
         parser.add_argument(
-            "--dor_threshold",
+            "--dor-threshold",
             type=float,
             default=0.95,
             help="""DropOutRate (DOR) threshold. All genes having a DOR
@@ -471,7 +464,7 @@ NOTE on TSV/CSV file specs:
             as discarded (no binarization or simulation will be applied).""",
         )
         parser.add_argument(
-            "--n_samples",
+            "--n-samples",
             type=int,
             default=1,
             help="""Number of samples to be simulated per binary state""",
@@ -489,34 +482,33 @@ NOTE on TSV/CSV file specs:
             be stored. Defaults to `in_file`_synthetic.csv""",
         )
         parser.add_argument(
-            "--rng_seed",
+            "--rng-seed",
             type=int,
             help="""An integer which will be used to seed both R's
             and Python's (numpy) random number generators.""",
         )
         parser.add_argument(
-            "--dump_criteria",
+            "--dump-criteria",
             action="store_true",
             help="""Should the computed simulation criteria be saved to a csv file
             to be reutilized afterwards?""",
         )
         parser.add_argument(
-            "--dump_config",
+            "--dump-config",
             action="store_true",
             help="""
             Should the specified CLI arguments be dumped to a toml configuration
             file?""",
         )
         args = dict(vars(parser.parse_args(sys.argv[2:])))
-        if not any(args[_key] for _key in _reference_mandatory_options):
-            parser.print_help()
-            print(
-                "\nCannot simulate without any reference.",
-                f"Please specify either --{_reference_mandatory_options[0]}",
-                f"or --{_reference_mandatory_options[1]}",
-                sep=" ",
-            )
-            sys.exit(1)
+        self._verify_mandatory_mutually_exclusive_options(
+            args, _reference_mandatory_options, parser
+        )
+        self._verify_mandatory_mutually_exclusive_options(
+            args, self._disposition_mandatory_options, parser
+        )
+        if args.get("genes_are_columns") is not None:
+            args["genes_are_rows"] = not args.pop("genes_are_columns")
         args.update({"action": "synthesize"})
         _timestamp = _YIELD_TIMESTAMP()
 
@@ -537,7 +529,6 @@ NOTE on TSV/CSV file specs:
         parser = argparse.ArgumentParser(
             description="Read a toml configuration file to parse arguments for simulations"
         )
-        # NOT prefixing the argument with -- means it's not optional
         parser.add_argument(
             "config_file",
             type=lambda p: Path(p).resolve(),
@@ -548,7 +539,7 @@ NOTE on TSV/CSV file specs:
             `$ scBoolSeq [binarize | synthesize] -h`""",
         )
         parser.add_argument(
-            "--dump_config",
+            "--dump-config",
             action="store_true",
             help="""
             Should the parameters defined in the specified config file be dumped to
