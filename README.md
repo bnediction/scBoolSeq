@@ -27,7 +27,7 @@ TODO: how to install R dependencies
 
 scBoolSeq provides a rich CLI allowing programmatic access to its main functionalities, namely the `binarization` of RNA-Seq data and the 
 generation of synthetic RNA-Seq data `synthesis` reflecting activation states from Boolean Network simulations. Once correctly instaled, 
-the tool's and subcommand's help explain all the possible parameters. Bellow you have an overview 
+the tool's and subcommand's help explain all the possible parameters. Some minimal examples are here presented.
 
 #### Main CLI
 
@@ -42,7 +42,11 @@ Available commands:
 
 NOTE on TSV/CSV file specs:
 * If '.csv', the file is assumed to use the standard separator for columns ','.
-* The index is assumed to be the first column.
+* The index (gene or sample identifiers) is assumed to be the first column.
+* The scBoolSeq is designed with consistency in mind. 
+  The `output` (binarized or synthetic expression frame) will have the same disposition 
+  (genes x observations | observations x genes) as the `input`. 
+  If a `reference` is specified, its disposition must match the `input`'s.
 
 scBoolSeq: bulk and single-cell RNA-Seq data binarization and synthetic generation from Boolean dynamics.
 
@@ -62,54 +66,72 @@ curl -fOL https://github.com/pinellolab/STREAM/raw/master/stream/tests/datasets/
 
 ls
 # data_Nestorowa.tsv.gz
-time scBoolSeq binarize data_Nestorowa.tsv.gz --transpose_in --output Nestorowa_binarized.csv --n_threads 8 --dump_config --dump_criteria
+time scBoolSeq binarize data_Nestorowa.tsv.gz --genes-are-rows\
+--output Nestorowa_binarized.csv --n-threads 10 --dump-config --dump-criteria
 # ________________________________________________________
 # Executed in   34.49 secs   fish           external 
 #   usr time   30.04 secs  1211.00 micros   30.04 secs 
 #   sys time    3.90 secs  171.00 micros    3.89 secs 
 
 ls
-# data_Nestorowa.tsv.gz    scBoolSeq_criteria_data_Nestorowa_2022-04-26_12h46m48.tsv
-# Nestorowa_binarized.csv  scBoolSeq_experiment_config_2022-04-26_12h46m48.toml
+# data_Nestorowa.tsv.gz    scBoolSeq_criteria_data_Nestorowa_2022-04-27_15h14m27.tsv
+# Nestorowa_binarized.csv  scBoolSeq_experiment_config_2022-04-27_15h14m27.toml
+
+# Visualize the binarized expression frame. 
+# Note that some entries are undefined (NaN)
+# These might be discarded genes for which no binarization or synthesis can occur,
+# or observations which did not pass the thresholds to be set to 0 or 1.
+python -c 'import pandas as pd; pd.read_csv("Nestorowa_binarized.csv", index_col=0).iloc[0:7, 0:7]'
+#             Clec1b  Kdm3a  Coro2b  8430408G22Rik  Clec9a  Phf6  Usp14
+# HSPC_025       NaN    1.0     NaN            NaN     NaN   0.0    0.0
+# HSPC_031       NaN    1.0     NaN            NaN     NaN   0.0    0.0
+# HSPC_037       NaN    0.0     1.0            NaN     NaN   0.0    1.0
+# LT-HSC_001     NaN    0.0     1.0            NaN     NaN   1.0    0.0
+# HSPC_001       NaN    0.0     1.0            NaN     NaN   1.0    0.0
+# HSPC_008       1.0    1.0     NaN            NaN     NaN   1.0    0.0
+# HSPC_014       NaN    0.0     NaN            NaN     NaN   0.0    1.0
 ```
 
 ##### Synthetic generation from Boolean states
 
-**todo** modify this after API modifications.
-
 ```bash
 cat minimal_boolean_example.csv 
 # the output is not commented out so that it can be copied
-# and perhaps be read with `x = pandas.read_clipboard(sep=',')`
-cell_id,Kdm3a,Coro2b,8430408G22Rik,Clec9a,Phf6
-HSPC_025,1.0,1.0,1.0,1.0,0.0
-HSPC_031,1.0,1.0,0.0,0.0,0.0
-HSPC_037,0.0,1.0,0.0,0.0,0.0
-LT-HSC_001,0.0,1.0,1.0,1.0,1.0
-HSPC_001,0.0,1.0,0.0,1.0,1.0
-HSPC_008,1.0,0.0,1.0,0.0,1.0
-HSPC_014,0.0,1.0,1.0,1.0,0.0
-HSPC_020,0.0,0.0,1.0,0.0,1.0
-HSPC_026,0.0,1.0,1.0,1.0,1.0
-HSPC_038,0.0,0.0,0.0,1.0,1.0
-LT-HSC_002,0.0,0.0,0.0,0.0,0.0
-HSPC_002,0.0,0.0,0.0,0.0,1.0
-HSPC_009,1.0,0.0,1.0,0.0,0.0
-HSPC_015,0.0,1.0,0.0,0.0,1.0
-HSPC_021,1.0,1.0,1.0,0.0,0.0
+# and perhaps be read with `x = pandas.read_clipboard(sep=',', index_col=0)`
+,HSPC_025,HSPC_031,HSPC_037,LT-HSC_001,HSPC_001,HSPC_008,HSPC_014,HSPC_020,HSPC_026,HSPC_038,LT-HSC_002,HSPC_002,HSPC_009,HSPC_015,HSPC_021
+Kdm3a,1.0,1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,1.0
+Coro2b,1.0,1.0,1.0,1.0,1.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,1.0
+8430408G22Rik,1.0,0.0,0.0,1.0,0.0,1.0,1.0,1.0,1.0,0.0,0.0,0.0,1.0,0.0,1.0
+Clec9a,1.0,0.0,0.0,1.0,1.0,0.0,1.0,0.0,1.0,1.0,0.0,0.0,0.0,0.0,0.0
+Phf6,0.0,0.0,0.0,1.0,1.0,1.0,0.0,1.0,1.0,1.0,0.0,1.0,0.0,1.0,0.0
 
 
-scBoolSeq synthesize minimal_boolean_example.csv --reference data_Nestorowa.tsv.gz\
-     --transpose_ref --n_samples 40 --output new_synthetic.tsv --n_threads 12
+# Generate 20 samples per boolean state, using 12 threads
+# setting the random number generator's seed ensures reproductiblility.
+time scBoolSeq synthesize --genes-are-rows minimal_boolean_example_T.csv --reference data_Nestorowa.tsv.gz\
+--n-samples 20 --output new_synthetic.tsv --n-threads 12 --rng-seed 1234
+# ________________________________________________________
+# Executed in   43.85 secs   fish           external 
+#    usr time   22.08 secs    0.00 millis   22.08 secs 
+#    sys time    3.65 secs    3.31 millis    3.65 secs 
+
+# visualize the newly generated synthetic scRNA-Seq experiment
+python -c 'import pandas as pd; pd.read_csv("new_synthetic.tsv", index_col=0, sep="\t").iloc[0:3, 0:7]'
+#                HSPC_025  HSPC_031  HSPC_037  LT-HSC_001  HSPC_001  HSPC_008  HSPC_014
+# Kdm3a          7.328819  8.536391  0.000000    0.000000  0.821561  7.030519  1.891949
+# Coro2b         0.000000  0.000000  6.457878    5.479887  0.000000  0.000000  5.503554
+# 8430408G22Rik  0.000000  0.005110  0.000000    0.000000  0.000000  6.428994  0.000000
 ```
 
 ### Python API
+
+Here a minimal example is presented, using the same dataset as the CLI usage guide.
+For further information, please check the documentation.
 
 ```python
 import pandas as pd
 from scboolseq import scBoolSeq
 from scboolseq.simulation import random_nan_binariser
-
 
 # read in the normalized expression data
 nestorowa = pd.read_csv("data_Nestorowa.tsv.gz", index_col=0, sep="\t")
@@ -125,7 +147,7 @@ nestorowa.iloc[1:5, 1:5]
 # scBoolSeq expects genes to be columns, thus we transpose the DataFrame.
 scbool_nest = scBoolSeq(data=nestorowa.T, r_seed=1234)
 scbool_nest
-# scBoolSeq(has_data=True, can_simulate=False, can_simulate=False)
+# scBoolSeq(has_data=True, can_binarize=False, can_simulate=False)
 scbool_nest.fit() # compute binarization criteria
 # scBoolSeq(has_data=True, can_binarize=True, can_simulate=False)
 
@@ -140,7 +162,10 @@ binarized.iloc[1:5, 1:5]
 # LT-HSC_001    0.0     1.0            NaN   1.0
 # HSPC_001      0.0     1.0            NaN   1.0
 
-fully_bin = binarized.iloc[1:5, 1:5].pipe(random_nan_binariser) # randomly (equiprobably) binarize undetermined values
+# randomly (equiprobably) binarize undetermined values
+# note that scboolseq.simulation.random_nan_binariser has no seeding mechanism
+# so it is not reproducible
+fully_bin = binarized.iloc[1:5, 1:5].pipe(random_nan_binariser) 
 fully_bin 
 #             Kdm3a  Coro2b  8430408G22Rik  Phf6
 # HSPC_031      1.0     0.0            1.0   0.0
@@ -149,7 +174,7 @@ fully_bin
 # HSPC_001      0.0     1.0            1.0   1.0
 
 # create a synthetic frame, with two samples per boolean state,
-# fixing the rng's seed for reproductibility
+# fixing the rng's seed for reproducibility
 # specyfing the number of threads to use
 scbool_nestorowa.simulate(fully_bin, n_threads=4, seed=1234, n_samples=2) 
 #               Kdm3a    Coro2b  8430408G22Rik      Phf6
