@@ -242,7 +242,11 @@ Available commands:
 
 NOTE on TSV/CSV file specs:
 * If '.csv', the file is assumed to use the standard separator for columns ','.
-* The index is assumed to be the first column.
+* The index (gene or sample identifiers) is assumed to be the first column.
+* The scBoolSeq is designed with consistency in mind. 
+  The `output` (binarized or synthetic expression frame) will have the same disposition 
+  (genes x observations | observations x genes) as the `input`. 
+  If a `reference` is specified, its disposition must match the `input`'s.
 """,
         )
         self.main_parser.add_argument("command", help="Subcommand to run")
@@ -289,8 +293,7 @@ NOTE on TSV/CSV file specs:
             "in_file",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A csv/tsv file containing a column for each gene and a line for each observation (cell/sample).
-            Expression data must be normalized before using this tool.""",
+            A csv/tsv file containing normalized expression data.""",
         )
         _genes_columns_or_rows = parser.add_mutually_exclusive_group(required=False)
         _genes_columns_or_rows.add_argument(
@@ -417,9 +420,8 @@ NOTE on TSV/CSV file specs:
             "in_file",
             type=lambda x: Path(x).resolve().as_posix(),
             help="""
-            A csv/tsv file containing a column for each gene and a line for each observation 
-            (an observation here is defined as a FULLY DETERMINED Boolean state). Preferrably,
-            Boolean states should be represented as zeros and ones.
+            A csv/tsv file containing FULLY DETERMINED Boolean states.
+            These should be represented as zeros (false) and ones (true).
             """,
         )
         _genes_columns_or_rows = parser.add_mutually_exclusive_group(required=False)
