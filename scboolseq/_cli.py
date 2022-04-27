@@ -472,7 +472,7 @@ NOTE on TSV/CSV file specs:
             help="""Number of samples to be simulated per binary state""",
         )
         parser.add_argument(
-            "--n_threads",
+            "--n-threads",
             type=int,
             default=mp.cpu_count(),
             help="""The number of parallel processes to be used.""",
