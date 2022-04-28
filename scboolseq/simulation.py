@@ -520,7 +520,7 @@ def biased_simulation_from_binary_state(
         )
 
 
-def simulate_from_boolean_trajectory(
+def __simulate_from_boolean_trajectory(
     boolean_trajectory_df: pd.DataFrame,
     criteria_df: pd.DataFrame,
     n_samples_per_state: SampleCountSpec = 1,
@@ -528,6 +528,8 @@ def simulate_from_boolean_trajectory(
     rng_seed: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
+    WARNING:  do not use this function, as it need to be debugged.
+
     Generate `n_samples_per_state`, for each one of the
     states found in `boolean_trajectory_df`.
     The biased simulation from the binary state is performed

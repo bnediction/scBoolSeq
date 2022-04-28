@@ -31,10 +31,8 @@ import numpy as np
 import pandas as pd
 
 # local imports
-from .simulation import (
-    biased_simulation_from_binary_state,
-    simulate_from_boolean_trajectory,
-)
+from .simulation import biased_simulation_from_binary_state
+from .utils.stream_helpers import simulate_from_boolean_trajectory, SampleCountSpec
 from .binarization import _binarize as binarization_binarize
 
 # R source code locations :
@@ -666,8 +664,7 @@ class scBoolSeq(object):
     def simulate_with_metadata(
         self,
         binary_df: pd.DataFrame,
-        n_samples_per_state: int = 1,
-        n_threads: Optional[int] = None,
+        n_samples_per_state: SampleCountSpec = 1,
         rng_seed: Optional[int] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -677,7 +674,7 @@ class scBoolSeq(object):
         and a metadata DataFrame which can be used to apply trajectory
         reconstruction methods.
 
-        wrapper for scBoolSeq.simulation.simulate_from_boolean_trajectory
+        wrapper for scBoolSeq.utils.stream_helpers.simulate_from_boolean_trajectory
         """
         if not self._can_simulate:
             raise AttributeError("Call .simulation_fit() first")
@@ -691,7 +688,6 @@ class scBoolSeq(object):
             boolean_trajectory_df=binary_df,
             criteria_df=self.simulation_criteria,
             n_samples_per_state=n_samples_per_state,
-            n_threads=n_threads,
             rng_seed=rng_seed,
         )
 
