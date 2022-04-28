@@ -21,21 +21,12 @@ You need `R` installed, see the specification of the R dependencies below.
 pip install scboolseq
 ```
 
-### R
+### Docker
 
-Having R installed, copying and executing the following snippet will install all of `scBoolSeq`'s dependencies:
-
-```R
-r_dependencies <- c("mclust", "diptest", "moments", "magrittr", "tidyr", "dplyr", 
-    "tibble", "bigmemory", "doSNOW", "foreach", "glue")
-# try to load all the dependencies :
-.deps_loaded <- sapply(r_dependencies, require, character.only=T)
-# retrieve those which are not installed
-.not_installed <- Filter(function(x) !x, .deps_loaded)
-.to_install <- names(.not_installed)
-install.packages(.to_install)
+The `scBoolSeq` command can be invoked using the `bnediction/scboolseq` image:
 ```
-
+docker run --rm -it -v $PWD:/data -w /data bnediction/scboolseq scBoolSeq ...
+```
 
 ## Usage
 

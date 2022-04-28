@@ -24,7 +24,7 @@ requirements:
     - rpy2
     - toml
     - tzlocal
-    - r-base >=4.1
+    - r-base
     - r-bigmemory
     - r-diptest
     - r-dosnow
