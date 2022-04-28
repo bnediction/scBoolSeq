@@ -30,4 +30,3 @@ def compare_profiles(
     merged = merged.reset_index()
 
     return merged
-    

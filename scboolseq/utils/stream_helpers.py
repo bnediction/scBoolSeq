@@ -23,7 +23,7 @@ SampleCountSpec = Union[int, range, Iterable[int]]
 
 
 def state_to_str(state: Dict[str, int]) -> str:
-    """ Convert a state to a string"""
+    """Convert a state to a string"""
     return "".join(str(value) for value in state.values())
 
 
@@ -36,7 +36,7 @@ def graph_node_to_dict(async_dynamics, node: str):
 
 
 def find_terminal_nodes_indexes(digraph: nx.DiGraph):
-    """ Find terminal nodes of a netorkx.DiGraph (directed graph)"""
+    """Find terminal nodes of a netorkx.DiGraph (directed graph)"""
     return [i for i in digraph.nodes if len(list(digraph.successors(i))) == 0]
 
 
@@ -49,7 +49,7 @@ def condensation_node_to_dicts(async_dynamics, condensation, node: int):
 
 
 def condensation_node_to_str(node) -> str:
-    """ Convert a netorkx condenstation node to a string """
+    """Convert a netorkx condenstation node to a string"""
     return "".join(w for w in node["members"])
 
 
@@ -491,7 +491,6 @@ def simulate_from_boolean_trajectory(
             lambda x: f"obs{str(x)}"
         )
     )
-
 
     # Create a colour map for different cell types
     _RGB_values = list("0123456789ABCDEF")
