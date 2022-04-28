@@ -5,6 +5,8 @@ scRNA-Seq data binarisation and synthetic generation from Boolean dynamics.
 
 ## Installation
 
+We recommend installing `scBoolSeq` via `conda`, but we provide as well a standard `pip` installation (which requires installing `R` and a set of `R` packages beforehand).
+
 ### Conda
 
 ```
