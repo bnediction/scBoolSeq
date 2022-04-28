@@ -92,7 +92,7 @@ python -c 'import pandas as pd; pd.read_csv("Nestorowa_binarized.csv", index_col
 # HSPC_014       NaN    0.0     NaN            NaN     NaN   0.0    1.0
 ```
 
-##### Synthetic generation from Boolean states
+#### Synthetic generation from Boolean states
 
 ```bash
 cat minimal_boolean_example.csv 
@@ -131,7 +131,6 @@ For further information, please check the documentation.
 ```python
 import pandas as pd
 from scboolseq import scBoolSeq
-from scboolseq.simulation import random_nan_binariser
 
 # read in the normalized expression data
 nestorowa = pd.read_csv("data_Nestorowa.tsv.gz", index_col=0, sep="\t")
@@ -146,13 +145,12 @@ nestorowa.iloc[1:5, 1:5]
 
 # scBoolSeq expects genes to be columns, thus we transpose the DataFrame.
 scbool_nest = scBoolSeq(data=nestorowa.T, r_seed=1234)
-scbool_nest
-# scBoolSeq(has_data=True, can_binarize=False, can_simulate=False)
-scbool_nest.fit() # compute binarization criteria
-# scBoolSeq(has_data=True, can_binarize=True, can_simulate=False)
 
-scbool_nestorowa.simulation_fit() # compute simulation criteria
-# scBoolSeq(has_data=True, can_binarize=True, can_simulate=True)
+##
+## Binarization
+##
+
+scbool_nest.fit() # compute binarization criteria
 
 binarized = scbool_nestorowa.binarize(nestorowa.T)
 binarized.iloc[1:5, 1:5] 
@@ -162,9 +160,16 @@ binarized.iloc[1:5, 1:5]
 # LT-HSC_001    0.0     1.0            NaN   1.0
 # HSPC_001      0.0     1.0            NaN   1.0
 
-# randomly (equiprobably) binarize undetermined values
-# note that scboolseq.simulation.random_nan_binariser has no seeding mechanism
-# so it is not reproducible
+
+##
+## Synthetic RNA-Seq generation from Boolean states
+##
+
+scbool_nestorowa.simulation_fit() # compute simulation criteria
+
+# we generate Boolean states by randomly (equiprobably) binarize undetermined
+# values from the previous binarization.
+from scboolseq.simulation import random_nan_binariser
 fully_bin = binarized.iloc[1:5, 1:5].pipe(random_nan_binariser) 
 fully_bin 
 #             Kdm3a  Coro2b  8430408G22Rik  Phf6
@@ -175,7 +180,6 @@ fully_bin
 
 # create a synthetic frame, with two samples per boolean state,
 # fixing the rng's seed for reproducibility
-# specyfing the number of threads to use
 scbool_nestorowa.simulate(fully_bin, n_threads=4, seed=1234, n_samples=2) 
 #               Kdm3a    Coro2b  8430408G22Rik      Phf6
 # HSPC_031    7.328819  0.000000       8.087928  0.923352
@@ -188,3 +192,7 @@ scbool_nestorowa.simulate(fully_bin, n_threads=4, seed=1234, n_samples=2)
 # HSPC_001    2.451340  0.000000       0.000000  9.969012
 
 ```
+
+## Contributors
+
+* [Gustavo Magaña López](https://github.com/gmagannaDevelop)
