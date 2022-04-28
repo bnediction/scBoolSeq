@@ -679,11 +679,7 @@ class scBoolSeq(object):
         if not self._can_simulate:
             raise AttributeError("Call .simulation_fit() first")
         self._check_df_contains_no_nan(_df=binary_df, _parameter_name="binary_df")
-        n_threads = (
-            min(abs(n_threads), multiprocessing.cpu_count())
-            if n_threads
-            else multiprocessing.cpu_count()
-        )
+
         return simulate_from_boolean_trajectory(
             boolean_trajectory_df=binary_df,
             criteria_df=self.simulation_criteria,
