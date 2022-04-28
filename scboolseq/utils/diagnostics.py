@@ -4,8 +4,7 @@
 
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-from plotnine import ggplot, geom_point, aes, stat_smooth, facet_wrap
+import plotnine as ggplot
 
 
 def summarise_by_criteria(data: pd.DataFrame, criteria: pd.DataFrame) -> pd.DataFrame:
@@ -31,26 +30,4 @@ def compare_profiles(
     merged = merged.reset_index()
 
     return merged
-
-
-def expression_profile_scatterplot(
-    name: str, frame: pd.DataFrame, group_col: str = "Category", **sns_lmplot_kwargs
-):
-    """plot the expression profile for a frame
-    the frame should be the result of calling
-
-    >>> frame = summarise_by_criteria(data, criteria)
-    """
-    lmplot_kw = dict(
-        x="Mean",
-        y="Variance",
-        hue=group_col,
-        data=frame.sort_values(group_col),
-        fit_reg=True,
-        scatter_kws={"alpha": 0.4},
-    )
-    lmplot_kw.update(sns_lmplot_kwargs)
-    sns.lmplot(**lmplot_kw)
-    plt.title(name)
-    plt.ion()
-    plt.show()
+    
