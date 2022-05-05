@@ -263,7 +263,7 @@ def sample_from_criteria(
     return pd.concat(ret_list, axis=1)
 
 
-def random_nan_binariser(
+def random_nan_binarizer(
     binary_df: pd.DataFrame,
     probs: Tuple[float] = (0.5, 0.5),
     rng: Optional[_RandType] = None,
@@ -291,6 +291,11 @@ def random_nan_binariser(
     )
 
     return binary_df
+
+
+def random_nan_binariser(*args, **kwargs):
+    """alias for scboolseq.simulation.random_nan_binarizer"""
+    return random_nan_binarizer(*args, **kwargs)
 
 
 def simulate_unimodal_distribution(
