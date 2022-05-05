@@ -25,6 +25,7 @@ from rpy2.robjects.conversion import localconverter
 from rpy2.robjects import globalenv as GLOBALENV
 from rpy2.rinterface_lib.embedded import RRuntimeError
 from rpy2.rinterface_lib.callbacks import logger as rpy2_logger
+from rpy2.rinterface_lib.embedded import RNotReadyError
 
 # data management
 import numpy as np
@@ -692,3 +693,19 @@ class scBoolSeq(object):
         instance."""
         _instance_objs = [f"'{obj}'" for obj in self.r_ls() if self._addr in obj]
         return self.r(f"rm(list = c({', '.join(_instance_objs)}))")
+
+    def __del__(self):
+        """This method is intended to reduce the memory footprint once the object
+        is destroyed by eliminating all the frames it instanciated on the R-side
+        (such as the criteria and simulation_criteria frames).
+        WARNING 1 : not intended to be called directly.
+        WARNING 2 : There is no guarantee that calling `del object` will effectively
+        call this method. This means that the R-side objects won't be erased until
+        Python's garbage collector decides to clean up this object.
+        """
+        # The try/except section is needed because the embedded R instance
+        # can be destroyed before the object upon the Python interpreter's exit.
+        try:
+            _ = self.clear_r_envir()
+        except RNotReadyError as _rnrerr:
+            pass
