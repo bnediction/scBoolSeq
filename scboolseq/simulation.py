@@ -83,7 +83,9 @@ def __sim_zero_inf(
     lambda
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     if not ignore_deprecation:
         __err_message = ["Error: ", "ZeroInf genes cannot be directly sampled"]
         raise DeprecationWarning("".join(__err_message))
@@ -96,7 +98,9 @@ def _sim_unimodal(
     """Simulate the expression of unimodal genes using
     a normal (gaussian) distribution."""
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     return rng.normal(loc=mean, scale=std_dev, size=size)
 
 
@@ -118,7 +122,9 @@ def _sim_bimodal(
     Weights should be a tuple (or eventually a list) containing
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     # Parameters of the mixture components
     norm_params = np.array([[mean1, std_dev], [mean2, std_dev]])
     # A stream of indices from which to choose the component
@@ -135,7 +141,9 @@ def _dropout_mask(
 ) -> np.ndarray:
     """Dropout mask to obtain the same dropout_rate as originally estimated"""
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     return rng.choice(
         (0, 1), size=size, replace=True, p=(dropout_rate, 1.0 - dropout_rate)
     )
@@ -163,7 +171,9 @@ def sample_gene(
     for the original expression dataset ?
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     _data: np.array
 
     if criterion["Category"] == "Discarded":
@@ -212,7 +222,9 @@ def _sample_sequential(
 ) -> pd.DataFrame:
     """Simulate samples from a criteria dataframe, sequentially"""
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     return (
         criteria.apply(
             lambda y: sample_gene(
@@ -251,19 +263,32 @@ def sample_from_criteria(
     return pd.concat(ret_list, axis=1)
 
 
-def random_nan_binariser(binary_df: pd.DataFrame, rng: Optional[_RandType] = None):
+def random_nan_binariser(
+    binary_df: pd.DataFrame,
+    probs: Tuple[float] = (0.5, 0.5),
+    rng: Optional[_RandType] = None,
+):
     """Assuming df is a binary matrix produced by calling
     profile_binr.scBoolSeq.binarise() this function should
     randomly resolve all NaN entries to either 1 or 0
 
-    This function operates on a deep copy of the df argument
+    first probability is the probability of resolving
+    to one and the second is the probability of resolving
+    to zero.
+    probs = (p(nan->1), p(nan->0))
+
+    This function operates on a deep copy of the df argument.
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     binary_df = binary_df.copy(deep=True)
-    for gene in binary_df.columns:
-        mask = binary_df[gene].isna()
-        binary_df.loc[mask, gene] = rng.choice((1.0, 0.0), mask.sum())
+    _na_mask = binary_df.isna()
+    _size = _na_mask.shape[0] * _na_mask.shape[1]
+    binary_df[_na_mask] = rng.choice((1.0, 0.0), size=_size, p=probs).reshape(
+        _na_mask.shape
+    )
 
     return binary_df
 
@@ -290,7 +315,9 @@ def simulate_unimodal_distribution(
                         half normal distribution.
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     # random variate right hand side
     _rv_rhs = ss.halfnorm.rvs(loc=mean, scale=std_dev, size=size, random_state=rng)
     # random variate left hand side
@@ -321,7 +348,9 @@ def simulate_bimodal_gene(
           the Boolean states.
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     assert binary_gene.name == criterion.name, "Criterion and gene mismatch"
     simulated_normalised_expression = pd.Series(
         np.nan, index=binary_gene.index, name=criterion.name, dtype=float
@@ -387,7 +416,9 @@ def simulate_unimodal_gene(
           the Boolean states.
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     assert binary_gene.name == criterion.name, "Criterion and gene mismatch"
     simulated_normalised_expression = pd.Series(
         0.0, index=binary_gene.index, name=criterion.name, dtype=float
@@ -452,7 +483,9 @@ def simulate_gene(
     for the original expression dataset ?
     """
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
 
     if criterion["Category"] == "Discarded":
         return pd.Series(
@@ -473,7 +506,9 @@ def _simulate_subset(
 ) -> pd.Series:
     """helper function, wrapper for apply"""
     rng = rng or _GLOBAL_RNG
-    rng = np.random.default_rng(rng) if isinstance(rng, int) else rng
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
     return binary_df.apply(
         lambda x: simulate_gene(x, simulation_criteria.loc[x.name, :], rng=rng)
     )
