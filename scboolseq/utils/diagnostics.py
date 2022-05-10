@@ -8,8 +8,6 @@ from functools import reduce
 import numpy as np
 import pandas as pd
 
-import matplotlib.pyplot as plt
-import plotnine
 
 from ..simulation import _RandType
 

@@ -26,7 +26,7 @@ setup(
     long_description_content_type="text/markdown",
     install_requires=[
         "pandas",
-        "matplotlib",
+        "scipy",
         "toml",
         "rpy2",
         "tzlocal",

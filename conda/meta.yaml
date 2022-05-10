@@ -19,7 +19,7 @@ requirements:
 
   run:
     - python
-    - matplotlib
+    - scipy
     - pandas
     - rpy2
     - toml
