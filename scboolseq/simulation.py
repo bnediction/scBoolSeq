@@ -21,15 +21,23 @@ _RandType = Union[np.random.Generator, int]
 _GLOBAL_RNG = np.random.default_rng()
 
 # Constants
-_DEFAULT_DROPOUT_MODE = "arithmetic"
-_EXP_DROPOUT_SIMULATION_MODES = {
+_DEFAULT_HALF_LIFE_CALCULATION = "arithmetic"
+# ^ Numerically stable, no other method is consistently or significantly better.
+# It also has a natural, explainable biological significance
+_EXP_EPSILON = 1.0
+# ^ Shorthand for _EXPONENTIAL_EPSILON
+# It was set to 1.0 and not a real machine epsilon such as `np.finfo(float).eps`
+# because the machine epsilon can lead to numerical instability when calculating
+# the harmonic and geometric means.
+_EXP_HALF_LIFE_CALCULATION_MODES = {
     "arithmetic": np.mean,
     "harmonic": ss.hmean,
     "geometric": ss.gmean,
     "median": np.median,
     "midpoint": lambda x: (np.max(x) + np.min(x)) / 2.0,
 }
-_VALID_DROUPOUT_MODES = ("uniform", *_EXP_DROPOUT_SIMULATION_MODES.keys())
+_VALID_DROUPOUT_MODES = ("uniform", "exponential")
+_DEFAULT_DROPOUT_MODE = "exponential"
 
 
 def set_module_rng_seed(seed: int) -> np.random.Generator:
@@ -160,17 +168,51 @@ def _dropout_mask(
     )
 
 
+def _estimate_exponential_parameter(
+    data: Union[np.ndarray, pd.Series],
+    mode: str = _DEFAULT_HALF_LIFE_CALCULATION,
+) -> float:
+    """Estimate \\beta_1 for the exponential decay model
+    of drop-out probabilities.
+
+    Probabilistic model:
+
+    $$
+        p = \\beta_0 * e^{\\beta_1 * (x - x_0)}
+    $$
+
+    Note: \\beta_0 can be easily calculated as follows:
+
+        \\beta_0 = 2.0 * criteria["DropOutRate"]
+
+    This is the actual computation performed in
+    `scboolseq.scBoolSeq.simulation_fit`
+
+    returns:
+    -------
+        \\beta_1
+    """
+    positive_entries = data > 0.0
+    positive_data = data[positive_entries]
+
+    _min_positive_value = np.min(positive_data)
+    x = positive_data - _min_positive_value + _EXP_EPSILON
+    _mu = _EXP_HALF_LIFE_CALCULATION_MODES[mode](x)
+
+    # b_0 is now calculated in scboolseq.scBoolSeq.simulation_fit
+    # b_0 = 2.0 * dropout_rate
+    b_1 = np.log(2.0) / _mu
+
+    return b_1
+
+
 def exponential_decay_dropout(
     data: Union[np.ndarray, pd.Series],
-    dropout_rate: float,
-    mode: str = "arithmetic",  # do not change to _DEFAULT_DROPOUT_MODE
+    b_0: float,
+    b_1: float,
     rng: Optional[_RandType] = None,
 ):
     """Simulate dropout using an exponential decay probabilistic strategy"""
-    if mode not in _EXP_DROPOUT_SIMULATION_MODES:
-        raise ValueError(
-            f"Invalid mode '{mode}'. Valid modes are: {_EXP_DROPOUT_SIMULATION_MODES.keys()}"
-        )
     rng = rng or _GLOBAL_RNG
     rng = (
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
@@ -180,15 +222,12 @@ def exponential_decay_dropout(
     positive_entries = data > 0.0
     positive_data = data[positive_entries]
 
-    _epsilon = 1.0  # 2.0 * np.finfo(float).eps
+    # TEST THE NECESSITY OF THE _EXP_EPSILON IN THIS CONTEXT
     _min_positive_value = np.min(positive_data)
-    x = positive_data - _min_positive_value + _epsilon
-    _mu = _EXP_DROPOUT_SIMULATION_MODES[mode](x)
+    x = positive_data - _min_positive_value  # + _EXP_EPSILON
 
-    b_0 = 2.0 * dropout_rate
-    b_1 = np.log(2.0) / _mu
-    dropout_probabilities = b_0 * np.exp(-b_1 * (x - _epsilon))
-    dropout_probabilities[dropout_probabilities >= 1.0] = 0.99
+    dropout_probabilities = b_0 * np.exp(-b_1 * x)  # (x - _EXP_EPSILON))
+    dropout_probabilities[dropout_probabilities >= 1.0] = 0.95
     dropout_events = rng.binomial(1, p=dropout_probabilities)
     dropout_mask = 1.0 - dropout_events
     decayed[positive_entries] *= dropout_mask
@@ -248,7 +287,10 @@ def sample_gene(
                 )
             else:
                 _data = exponential_decay_dropout(
-                    data=_data, dropout_rate=correction_dor, mode=dropout_mode, rng=rng
+                    data=_data,
+                    b_0=criterion["beta_0"],
+                    b_1=criterion["beta_1"],
+                    rng=rng,
                 )
     elif criterion["Category"] == "Bimodal":
         _data = _sim_bimodal(
@@ -270,7 +312,10 @@ def sample_gene(
                 )
             else:
                 _data = exponential_decay_dropout(
-                    data=_data, dropout_rate=correction_dor, mode=dropout_mode, rng=rng
+                    data=_data,
+                    b_0=criterion["beta_0"],
+                    b_1=criterion["beta_1"],
+                    rng=rng,
                 )
     elif criterion["Category"] == "ZeroInf":
         _data = __sim_zero_inf(_lambda=criterion["lambda"], size=n_samples, rng=rng)
@@ -427,7 +472,8 @@ def simulate_bimodal_gene(
     rng = (
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
     )
-    assert binary_gene.name == criterion.name, "Criterion and gene mismatch"
+    if binary_gene.name != criterion.name:
+        raise ValueError("Criterion and gene mismatch")
     simulated_normalised_expression = pd.Series(
         np.nan, index=binary_gene.index, name=criterion.name, dtype=float
     )
@@ -468,8 +514,8 @@ def simulate_bimodal_gene(
         else:
             simulated_normalised_expression = exponential_decay_dropout(
                 data=simulated_normalised_expression,
-                dropout_rate=_correction_dor,
-                mode=dropout_mode,
+                b_0=criterion["beta_0"],
+                b_1=criterion["beta_1"],
                 rng=rng,
             )
 
@@ -502,7 +548,8 @@ def simulate_unimodal_gene(
     rng = (
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
     )
-    assert binary_gene.name == criterion.name, "Criterion and gene mismatch"
+    if binary_gene.name != criterion.name:
+        raise ValueError("Criterion and gene mismatch")
     simulated_normalised_expression = pd.Series(
         0.0, index=binary_gene.index, name=criterion.name, dtype=float
     )
@@ -544,8 +591,8 @@ def simulate_unimodal_gene(
         else:
             simulated_normalised_expression = exponential_decay_dropout(
                 data=simulated_normalised_expression,
-                dropout_rate=_correction_dor,
-                mode=dropout_mode,
+                b_0=criterion["beta_1"],
+                b_1=criterion["beta_1"],
                 rng=rng,
             )
 

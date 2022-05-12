@@ -32,7 +32,10 @@ import numpy as np
 import pandas as pd
 
 # local imports
-from .simulation import biased_simulation_from_binary_state
+from .simulation import (
+    biased_simulation_from_binary_state,
+    _estimate_exponential_parameter,
+)
 from .utils.stream_helpers import simulate_from_boolean_trajectory, SampleCountSpec
 from .binarization import _binarize as binarization_binarize
 
@@ -459,6 +462,19 @@ class scBoolSeq(object):
         else:
             # Copy the originally estimated criteria
             self.simulation_criteria = self.criteria.copy()
+
+        self.simulation_criteria.loc[:, "beta_0"] = (
+            2.0 * self.simulation_criteria["DropOutRate"].values
+        )
+
+        # self.simulation_criteria.loc[:, "beta_1"] = self.data.apply(
+        #   _estimate_exponential_parameter
+        # )
+        # ^ np.apply_along axis is preferred since it is, in general, at
+        # least 10 times faster than pandas.apply
+        self.simulation_criteria.loc[:, "beta_1"] = np.apply_along_axis(
+            _estimate_exponential_parameter, 0, self.data.values
+        )
 
         return self
 

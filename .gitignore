@@ -8,8 +8,11 @@ results
 
 # data files :
 /**/*.csv
+/**/*.bin
+/**/*.desc
 
 # directories created for tinkering and exploration:
+/*.ipynb
 manual_tests
 stray
 local_docs
