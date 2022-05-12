@@ -318,7 +318,9 @@ def sample_gene(
                     rng=rng,
                 )
     elif criterion["Category"] == "ZeroInf":
-        _data = __sim_zero_inf(_lambda=criterion["lambda"], size=n_samples, rng=rng)
+        __err_message = ["Error: ", "ZeroInf genes cannot be directly sampled"]
+        raise DeprecationWarning("".join(__err_message))
+        # _data = __sim_zero_inf(_lambda=criterion["lambda"], size=n_samples, rng=rng)
     else:
         raise ValueError(f"Unknown category `{criterion['Category']}`, aborting")
 

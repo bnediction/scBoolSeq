@@ -35,6 +35,8 @@ import pandas as pd
 from .simulation import (
     biased_simulation_from_binary_state,
     _estimate_exponential_parameter,
+    _DEFAULT_HALF_LIFE_CALCULATION,
+    _DEFAULT_DROPOUT_MODE,
 )
 from .utils.stream_helpers import simulate_from_boolean_trajectory, SampleCountSpec
 from .binarization import _binarize as binarization_binarize
@@ -163,10 +165,6 @@ class scBoolSeq(object):
         self.zero_inf_criteria: Optional[pd.DataFrame] = None
         self.simulation_criteria: Optional[pd.DataFrame] = simulation_criteria
         self._zero_inf_idx: pd.core.indexes.base.Index
-        self._zero_inf_df: pd.DataFrame
-        # self._unimodal_margin_quantile: float
-        # self._dor_threshold: float
-        # self._alpha: float
 
         # try loading all packages and functions, installing them upon failure
         try:
@@ -329,10 +327,6 @@ class scBoolSeq(object):
                     ]
                 )
             )
-        # save the unimodal margin quantile to avoid discrepancies
-        # when recalculating the simulation criteria
-        # self._unimodal_margin_quantile = unimodal_margin_quantile
-        # self._dor_threshold = dor_threshold
 
         # the data must be instantiated before performing the R call :
         if self._has_data:
@@ -376,10 +370,24 @@ class scBoolSeq(object):
         n_threads: int = multiprocessing.cpu_count(),
         dor_threshold: float = 0.95,
         unimodal_margin_quantile: float = 0.25,
+        half_life_method: str = _DEFAULT_HALF_LIFE_CALCULATION,
         mask_zero_entries: bool = True,
     ) -> "scBoolSeq":
-        """Re compute criteria for genes classified as zero-inflated,
-        in order to better estimate simulation parameters."""
+        """Basically the same as scBoolSeq_instance.fit(), but masking zero
+        entries in order to better approximate the parameters of the distribution
+        and independently simulate drop-out events.
+
+        Parameters to perform this drop-out simulations are calculated
+        using scboolseq.simulation._estimate_exponential_parameter().
+        See this function's docstring for further information.
+
+        Possible values for parameter `half_life_method` are:
+            * arithmetic \\
+            * harmonic     | <---- pythagorean means
+            * geometric   /
+            * median
+            * midpoint (max(x) + min(x)) / 2.0
+        """
         if not self._is_trained:
             raise AttributeError(
                 "\n".join(
@@ -427,41 +435,19 @@ class scBoolSeq(object):
             )
 
         self._zero_inf_idx = self.criteria[self.criteria.Category == "ZeroInf"].index
-        # Perform simulation_fit iff there is at least one Zero-Inflated gene.
-        if len(self._zero_inf_idx) > 0:
-            self._zero_inf_df = self.data.loc[:, self._zero_inf_idx]
-            self.r_instantiate_data(self._zero_inf_df, f"zero_inf_RNA_{self._addr}")
-
-            params = [
-                f"exp_dataset = zero_inf_RNA_{self._addr}",
-                f"n_threads = {n_threads}",
-                f"dor_threshold = {dor_threshold}",
-                f"mask_zero_entries = {self._r_bool(mask_zero_entries)}",
-                f"unimodal_margin_quantile = {unimodal_margin_quantile}",
-            ]
-            try:
-                with localconverter(r_objs.default_converter + pandas2ri.converter):
-                    self.zero_inf_criteria = r_objs.conversion.rpy2py(
-                        self.r(
-                            f"zero_inf_criteria_{self._addr} <- compute_criteria({', '.join(params)})"
-                        )
-                    )
-
-                # force ZeroInf genes to be simulated as Unimodal
-                self.zero_inf_criteria.loc[
-                    self.zero_inf_criteria.Category == "ZeroInf", "Category"
-                ] = "Unimodal"
-                # Copy the originally estimated criteria
-                self.simulation_criteria = self.criteria.copy()
-                # Update the criteria for ZeroInf genes
-                self.simulation_criteria.loc[
-                    self._zero_inf_idx, :
-                ] = self.zero_inf_criteria
-            except RRuntimeError as _rer:
-                raise RRuntimeError(self._build_r_error_hint(_rer)) from None
-        else:
-            # Copy the originally estimated criteria
-            self.simulation_criteria = self.criteria.copy()
+        params = [
+            f"exp_dataset = META_RNA_{self._addr}",
+            f"n_threads = {n_threads}",
+            f"dor_threshold = {dor_threshold}",
+            f"mask_zero_entries = {self._r_bool(mask_zero_entries)}",
+            f"unimodal_margin_quantile = {unimodal_margin_quantile}",
+        ]
+        with localconverter(r_objs.default_converter + pandas2ri.converter):
+            self.simulation_criteria = r_objs.conversion.rpy2py(
+                self.r(
+                    f"simulation_criteria_{self._addr} <- compute_criteria({', '.join(params)})"
+                )
+            )
 
         self.simulation_criteria.loc[:, "beta_0"] = (
             2.0 * self.simulation_criteria["DropOutRate"].values
@@ -472,9 +458,16 @@ class scBoolSeq(object):
         # )
         # ^ np.apply_along axis is preferred since it is, in general, at
         # least 10 times faster than pandas.apply
-        self.simulation_criteria.loc[:, "beta_1"] = np.apply_along_axis(
-            _estimate_exponential_parameter, 0, self.data.values
+        _beta_1_estimator = partial(
+            _estimate_exponential_parameter, mode=half_life_method
         )
+        self.simulation_criteria.loc[:, "beta_1"] = np.apply_along_axis(
+            _beta_1_estimator, 0, self.data.values
+        )
+        # force ZeroInf genes to be simulated as Unimodal
+        self.simulation_criteria.loc[
+            self.simulation_criteria.Category == "ZeroInf", "Category"
+        ] = "Unimodal"
 
         return self
 
@@ -656,6 +649,7 @@ class scBoolSeq(object):
         n_threads: Optional[int] = None,
         n_samples: Optional[int] = None,
         seed: Optional[int] = None,
+        dropout_mode: str = _DEFAULT_DROPOUT_MODE,
     ) -> pd.DataFrame:
         """
         Perform biased simulation based on a fully determined binary DataFrame.
@@ -676,8 +670,10 @@ class scBoolSeq(object):
             n_threads=n_threads,
             n_samples=n_samples,
             seed=seed,
+            dropout_mode=dropout_mode,
         )
 
+    # TODO: remove this method
     def simulate_with_metadata(
         self,
         binary_df: pd.DataFrame,
