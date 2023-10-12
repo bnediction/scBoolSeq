@@ -1,6 +1,7 @@
 
 # Manual ignore tags.
-**/ignore_*
+**/ignore*
+**/*ignore
 
 # data directories :
 data

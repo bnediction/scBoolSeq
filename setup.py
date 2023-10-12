@@ -11,7 +11,7 @@ setup(
     name=NAME,
     version=VERSION,
     author="Gustavo Magaña López",
-    author_email="gustavo.magana-lopez@u-psud.fr",
+    author_email="gustavo.magana@labri.fr",
     url="https://github.com/bnediction/scBoolSeq",
     packages=find_packages(exclude=("tests",)),
     license="BSD-3",
@@ -21,21 +21,14 @@ setup(
         "Topic :: Scientific/Engineering :: Bio-Informatics",
     ],
     keywords='',
-    description="scRNA-Seq data binarisation and synthetic generation from Boolean dynamics.",
+    description="scBoolSeq: Linking scRNA-Seq Statistics and Boolean Dynamics.",
     long_description=open('README.md').read(),
     long_description_content_type="text/markdown",
     install_requires=[
         "pandas",
-        "scipy",
-        "toml",
-        "rpy2",
-        "tzlocal",
+        "diptest",
+        "scikit-learn>=1.2.0",# should include numpy and scipy
+        "statsmodels"
     ],
-    entry_points = {
-        "console_scripts": [
-            "scBoolSeq=scboolseq.__main__:main"
-        ],
-    },
-    package_data={'scboolseq': ['_R/*.R']}
 )
 

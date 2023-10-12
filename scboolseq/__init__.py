@@ -1,14 +1,16 @@
 """
-scBoolSeq:
-scRNA-Seq data binarisation and synthetic generation from Boolean dynamics.
+scBoolSeq: Linking scRNA-Seq with Boolean Dynamics
 
 author: "Gustavo Magaña López"
 credits: "BNediction ; Institut Curie"
 """
 
-from .core import scBoolSeq
-from .utils.normalization import log_transform, normalize, log_normalize
-
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Gustavo Magaña López"
 __credits__ = "BNeDiction; Institut Curie"
+
+# Packages
+from . import binarization
+
+# Main Class
+from .binarization import scBoolSeqBinarizer as scBoolSeq

@@ -5,7 +5,7 @@ scRNA-Seq data binarisation and synthetic generation from Boolean dynamics.
 
 ## Installation
 
-We recommend installing `scBoolSeq` via `conda`, but we provide as well a standard `pip` installation (which requires installing `R` and a set of `R` packages beforehand).
+We recommend installing `scBoolSeq` via `conda`, but we provide as well a standard `pip` installation. 
 
 ### Conda
 
@@ -14,8 +14,6 @@ conda install -c conda-forge -c colomoto scboolseq
 ```
 
 ### Pip
-
-You need `R` installed, see the specification of the R dependencies below.
 
 ```
 pip install scboolseq
@@ -30,6 +28,7 @@ docker run --rm -it -v $PWD:/data -w /data bnediction/scboolseq scBoolSeq ...
 
 ## Usage
 
+<!--
 ### Command line
 
 scBoolSeq provides a rich CLI allowing programmatic access to its main functionalities, namely the `binarization` of RNA-Seq data and the 
@@ -129,6 +128,7 @@ python -c 'import pandas as pd; pd.read_csv("new_synthetic.tsv", index_col=0, se
 # Coro2b         0.000000  0.000000  6.457878    5.479887  0.000000  0.000000  5.503554
 # 8430408G22Rik  0.000000  0.005110  0.000000    0.000000  0.000000  6.428994  0.000000
 ```
+-->
 
 ### Python API
 
@@ -150,14 +150,14 @@ nestorowa.iloc[1:5, 1:5]
 #
 # NOTE : here, genes are rows and observations are columns
 
-# scBoolSeq expects genes to be columns, thus we transpose the DataFrame.
-scbool_nest = scBoolSeq(data=nestorowa.T, r_seed=1234)
+scbool_nest = scBoolSeq()
 
 ##
 ## Binarization
 ##
 
-scbool_nest.fit() # compute binarization criteria
+# scBoolSeq expects genes to be columns, thus we transpose the DataFrame.
+scbool_nest.fit(nestorowa.T) # compute binarization criteria
 
 binarized = scbool_nestorowa.binarize(nestorowa.T)
 binarized.iloc[1:5, 1:5] 
@@ -172,32 +172,16 @@ binarized.iloc[1:5, 1:5]
 ## Synthetic RNA-Seq generation from Boolean states
 ##
 
-scbool_nestorowa.simulation_fit() # compute simulation criteria
-
-# we generate Boolean states by randomly (equiprobably) binarize undetermined
-# values from the previous binarization.
-from scboolseq.simulation import random_nan_binariser
-fully_bin = binarized.iloc[1:5, 1:5].pipe(random_nan_binariser) 
-fully_bin 
+# We load in a boolean trace obtained from the simulation of a Boolean model
+boolean_trace = pd.read_csv("boolean_dynamics.csv", index_col=0)
+boolean_trace
 #             Kdm3a  Coro2b  8430408G22Rik  Phf6
-# HSPC_031      1.0     0.0            1.0   0.0
-# HSPC_037      0.0     1.0            1.0   0.0
-# LT-HSC_001    0.0     1.0            0.0   1.0
-# HSPC_001      0.0     1.0            1.0   1.0
+# init          1.0     0.0            1.0   0.0
+# transient_1   0.0     1.0            1.0   0.0
+# transient_2   0.0     1.0            0.0   1.0
+# stable_state  0.0     1.0            1.0   1.0
 
-# create a synthetic frame, with two samples per boolean state,
-# fixing the rng's seed for reproducibility
-scbool_nestorowa.simulate(fully_bin, n_threads=4, seed=1234, n_samples=2) 
-#               Kdm3a    Coro2b  8430408G22Rik      Phf6
-# HSPC_031    7.328819  0.000000       8.087928  0.923352
-# HSPC_037    1.003712  6.843611       7.003577  0.000000
-# LT-HSC_001  0.000000  0.000000       0.000000  5.174053
-# HSPC_001    1.672793  0.000000       0.000000  4.481709
-# HSPC_031    8.536391  1.060373       0.000000  3.267464
-# HSPC_037    1.055816  5.479887       0.000000  3.836276
-# LT-HSC_001  0.000000  0.000000       0.000000  8.131221
-# HSPC_001    2.451340  0.000000       0.000000  9.969012
-
+synthetic_scrna_pseudocounts = scbool_nestorowa.sample_counts(boolean_trace) 
 ```
 
 ## Contributors

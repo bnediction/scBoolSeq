@@ -9,22 +9,33 @@ import multiprocessing as mp
 from typing import Tuple, Callable, List, Optional, Union, Iterable, Dict, Iterator
 
 import scipy.stats as ss
+import scipy.optimize as opt
 import numpy as np
 import pandas as pd
+
+
+# from sklearn.pipeline import Pipeline
+# from sklearn import preprocessing as preproc
+# import sklearn
+# from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
 # Typing aliases
 RandomWalkGenerator = Union[Iterator[Dict[str, int]], List[Dict[str, int]]]
 SampleCountSpec = Union[int, range, Iterable[int]]
 _RandType = Union[np.random.Generator, int]
 
+# TODO: remove this rng
 # module-wide numpy random number generator instance
 _GLOBAL_RNG = np.random.default_rng()
 
 # Constants
-_DEFAULT_HALF_LIFE_CALCULATION = "arithmetic"
+_DEFAULT_BOOL_DIST_CLASSIFIER = KNeighborsClassifier(n_neighbors=15, weights="distance")
+_PROBA_CLIP_BOUNDARY: float = 0.95
+_DEFAULT_HALF_LIFE_CALCULATION: str = "arithmetic"
 # ^ Numerically stable, no other method is consistently or significantly better.
 # It also has a natural, explainable biological significance
-_EXP_EPSILON = 1.0
+_EXP_EPSILON: float = 1.0
 # ^ Shorthand for _EXPONENTIAL_EPSILON
 # It was set to 1.0 and not a real machine epsilon such as `np.finfo(float).eps`
 # because the machine epsilon can lead to numerical instability when calculating
@@ -36,8 +47,9 @@ _EXP_HALF_LIFE_CALCULATION_MODES = {
     "median": np.median,
     "midpoint": lambda x: (np.max(x) + np.min(x)) / 2.0,
 }
-_VALID_DROUPOUT_MODES = ("uniform", "exponential")
+_VALID_DROPOUT_MODES = ("uniform", "exponential", "sigmoid")
 _DEFAULT_DROPOUT_MODE = "exponential"
+_MOMENTS = moments = ["Mean", "Variance", "Skewness", "Kurtosis"]
 
 
 def set_module_rng_seed(seed: int) -> np.random.Generator:
@@ -72,21 +84,10 @@ def set_module_rng_seed(seed: int) -> np.random.Generator:
     """
     # declare global to override the generator
     # that has been imported on different sections
+    # pylint: disable=global-statement
     global _GLOBAL_RNG
+    # pylint: enable=global-statement
     _GLOBAL_RNG = np.random.default_rng(seed)
-    if isinstance(seed, int):
-        # import is performed within the function,
-        # to prevent an import error due to circular import
-        from .core import scBoolSeq
-
-        _sc_bool_seq = scBoolSeq(pd.DataFrame())
-        _sc_bool_seq.r(f"set.seed({seed})")
-    else:
-        _no_seed_warning_message_ls = [
-            f"seed of type {type(seed)} can not be passed to the embedded R instance",
-            "the seed was not set on the R side.",
-        ]
-        warnings.warn(" ".join(_no_seed_warning_message_ls))
 
     return _GLOBAL_RNG
 
@@ -126,14 +127,13 @@ def _sim_unimodal(
 def _sim_bimodal(
     mean1: float,
     mean2: float,
-    std_dev: float,
+    std_dev_1: float,
+    std_dev_2: float,
     weights: Tuple[float],
     size: int,
     rng: Optional[_RandType] = None,
 ):
     """Simulate bimodal genes. The modelling is achieved using a gaussian mixture.
-    The variance is assumed to be tied i.e. both components of the mixture have the same
-    variance.
 
     Parametres
     ----------
@@ -145,7 +145,11 @@ def _sim_bimodal(
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
     )
     # Parameters of the mixture components
-    norm_params = np.array([[mean1, std_dev], [mean2, std_dev]])
+    # if isinstance(std_dev, (list, tuple, np.ndarray)):
+    #    std_dev_1, std_dev_2 = std_dev
+    # else:
+    #    std_dev_1 = std_dev_2 = std_dev
+    norm_params = np.array([[mean1, std_dev_1], [mean2, std_dev_2]])
     # A stream of indices from which to choose the component
     mixture_idx = rng.choice(len(weights), size=size, replace=True, p=weights)
     # y is the mixture sample
@@ -206,13 +210,55 @@ def _estimate_exponential_parameter(
     return b_1
 
 
-def exponential_decay_dropout(
+def _exponential_normalization_constant(data, lambda_):
+    """Give a normalization constant to match the desired DOR"""
+    # The integral was calculated analytically
+    upper, lower = data.min(), data.max()
+    I = lambda x: np.exp(-lambda_ * x) * (lambda_ * x + 1)
+    return I(upper) - I(lower)
+
+
+def _generate_objective_function_exponential(data, tau):
+    """tau is the desired dropout rate"""
+
+    def objective_function(params):
+        _beta, _lambda = params
+        objective = data.shape[0] * tau
+        probas = _beta * np.exp(-_lambda * data)
+        probas[probas >= 0.95] = 0.90
+        return np.power(probas.sum() - objective, 2)
+
+    # def objective_function(params):
+    #    _lambda = params
+    #    objective = data.shape[0] * tau
+    #    probas = np.exp(-_lambda * data)
+    #    # probas[probas >= 0.95] = 0.95
+    #    return np.power(probas.sum() - objective, 2)
+
+    return objective_function
+
+
+# """Simulate dropout using an exponential decay probabilistic strategy
+# """Simulate dropout using an exponential decay probabilistic strategy"""
+
+
+def get_exponential_dropout_probabilities(
     data: Union[np.ndarray, pd.Series],
     b_0: float,
     b_1: float,
     rng: Optional[_RandType] = None,
-):
-    """Simulate dropout using an exponential decay probabilistic strategy"""
+) -> Union[np.ndarray, pd.Series]:
+    """Simulate dropout using an exponential decay probabilistic strategy.
+
+    Args:
+        data (Union[np.ndarray, pd.Series]): Expression values subject to dropout
+        b_0 (float): reference dropout rate
+        b_1 (float): lambda rate parameter
+        rng (Optional[_RandType], optional): Integer or np.random.default_rng() instance. Defaults to None.
+
+    Returns:
+        Union[np.ndarray, pd.Series]: _description_
+    """
     rng = rng or _GLOBAL_RNG
     rng = (
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
@@ -222,12 +268,119 @@ def exponential_decay_dropout(
     positive_entries = data > 0.0
     positive_data = data[positive_entries]
 
-    # TEST THE NECESSITY OF THE _EXP_EPSILON IN THIS CONTEXT
     _min_positive_value = np.min(positive_data)
-    x = positive_data - _min_positive_value  # + _EXP_EPSILON
+    x = positive_data
 
-    dropout_probabilities = b_0 * np.exp(-b_1 * x)  # (x - _EXP_EPSILON))
-    dropout_probabilities[dropout_probabilities >= 1.0] = 0.95
+    raw_p = np.exp(-b_1 * x)
+    b_0_opt = (x.shape[0] * b_0) / raw_p.sum()  # analytical optimum
+
+    dropout_probabilities = b_0_opt * raw_p
+    correction_mask = dropout_probabilities >= _PROBA_CLIP_BOUNDARY
+    ## Clipped version:
+    dropout_probabilities[correction_mask] = _PROBA_CLIP_BOUNDARY
+
+    return dropout_probabilities
+
+
+def exponential_decay_dropout(
+    data: Union[np.ndarray, pd.Series],
+    b_0: float,
+    b_1: float,
+    rng: Optional[_RandType] = None,
+) -> Union[np.ndarray, pd.Series]:
+    """Simulate dropout using an exponential decay probabilistic strategy.
+    b_1 is
+
+    Args:
+        data (Union[np.ndarray, pd.Series]): _description_
+        b_0 (float): _description_
+        b_1 (float): _description_
+        rng (Optional[_RandType], optional): _description_. Defaults to None.
+
+    Returns:
+        Union[np.ndarray, pd.Series]: _description_
+    """
+    rng = rng or _GLOBAL_RNG
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
+
+    decayed = data.copy()
+    positive_entries = data > 0.0
+    positive_data = data[positive_entries]
+
+    _min_positive_value = np.min(positive_data)
+    x = positive_data
+
+    raw_p = np.exp(-b_1 * x)
+    b_0_opt = (x.shape[0] * b_0) / raw_p.sum()  # analytical optimum
+
+    dropout_probabilities = b_0_opt * raw_p
+    correction_mask = dropout_probabilities >= _PROBA_CLIP_BOUNDARY
+    ## Clipped version:
+    dropout_probabilities[correction_mask] = _PROBA_CLIP_BOUNDARY
+    ## Stochastic version
+    # dropout_probabilities[correction_mask] = rng.uniform(
+    #    0.95, 0.99, size=correction_mask.sum()
+    # )
+    dropout_events = rng.binomial(1, p=dropout_probabilities)
+    dropout_mask = 1.0 - dropout_events
+    decayed[positive_entries] *= dropout_mask
+
+    return decayed
+
+
+def _generate_objective_function_sigmoid(data, tau, center: Callable = np.mean):
+    """tau is the desired dropout rate"""
+
+    def objective_function(params):
+        lambda_ = params
+        objective = data.shape[0] * tau
+        probas = 1 - 1 / (1 + np.exp(-lambda_ * data + center(data)))
+        return np.power(probas.sum() - objective, 2)
+
+    return objective_function
+
+
+def _sigmoid_dropout_probabilities(data, lambda_: float, center: Callable = np.mean):
+    """determine sigmoid dropout probabilities"""
+    p = 1 - 1 / (1 + np.exp(-lambda_ * data + center(data)))
+    return p
+
+
+def sigmoid_decay_dropout(
+    data: Union[np.ndarray, pd.Series],
+    correction_dor: float,
+    lambda_: float,
+    rng: Optional[_RandType] = None,
+):
+    """Simulate dropout events
+    Probabilities are determined by an inverse sigmoid function
+    """
+    # setup rng
+    rng = rng or _GLOBAL_RNG
+    rng = (
+        np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
+    )
+
+    # select the positive entries for simulating dropout
+    decayed = data.copy()
+    positive_entries = data > 0.0
+    positive_data = data[positive_entries]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # Use scipy to to optimise the shape of the sigmoid
+        obj_func = _generate_objective_function_sigmoid(positive_data, correction_dor)
+        constraints = ({"type": "ineq", "fun": lambda x: np.array([x[0]])},)
+        bounds = ((0.0001, 100),)
+        x0 = np.array([lambda_])  # our initial guess is the estimated half-life param
+        # np.log(2.0) / np.mean(data)
+        opt_res = opt.minimize(obj_func, x0=x0, constraints=constraints, bounds=bounds)
+        dropout_probabilities = _sigmoid_dropout_probabilities(
+            positive_data, lambda_=opt_res["x"]
+        )
+
     dropout_events = rng.binomial(1, p=dropout_probabilities)
     dropout_mask = 1.0 - dropout_events
     decayed[positive_entries] *= dropout_mask
@@ -257,9 +410,9 @@ def sample_gene(
     in order to preserve the dropout rate estimated whilst computing the criteria
     for the original expression dataset ?
     """
-    if dropout_mode not in _VALID_DROUPOUT_MODES:
+    if dropout_mode not in _VALID_DROPOUT_MODES:
         raise ValueError(
-            f"Invalid dropout mode '{dropout_mode}'. Valid modes are: {_VALID_DROUPOUT_MODES}"
+            f"Invalid dropout mode '{dropout_mode}'. Valid modes are: {_VALID_DROPOUT_MODES}"
         )
     rng = rng or _GLOBAL_RNG
     rng = (
@@ -269,60 +422,57 @@ def sample_gene(
 
     if criterion["Category"] == "Discarded":
         _data = np.full(n_samples, np.nan)
-    elif criterion["Category"] == "Unimodal":
+        return pd.Series(data=_data, name=criterion.name)
+
+    if criterion["Category"] == "Unimodal":
         _data = _sim_unimodal(
-            mean=criterion["mean"],
-            std_dev=np.sqrt(criterion["variance"]),
+            mean=criterion["MeanNZ"],
+            std_dev=np.sqrt(criterion["VarianceNZ"]),
             size=n_samples,
             rng=rng,
         )
-        _negative_data = _data < 0.0
-        _data[_negative_data] = 0.0
-        natural_dor = sum(_negative_data) / len(_data)
-        if enforce_dropout_rate and natural_dor < criterion["DropOutRate"]:
-            correction_dor = criterion["DropOutRate"] - natural_dor
-            if dropout_mode == "uniform":
-                _data *= _dropout_mask(
-                    dropout_rate=correction_dor, size=n_samples, rng=rng
-                )
-            else:
-                _data = exponential_decay_dropout(
-                    data=_data,
-                    b_0=criterion["beta_0"],
-                    b_1=criterion["beta_1"],
-                    rng=rng,
-                )
     elif criterion["Category"] == "Bimodal":
         _data = _sim_bimodal(
-            mean1=criterion["gaussian_mean1"],
-            mean2=criterion["gaussian_mean2"],
-            std_dev=np.sqrt(criterion["gaussian_variance"]),
-            weights=(criterion["gaussian_prob1"], criterion["gaussian_prob2"]),
+            mean1=criterion["Gaussian_Mean_1"],
+            mean2=criterion["Gaussian_Mean_2"],
+            std_dev_1=np.sqrt(criterion["Gaussian_Variance_1"]),
+            std_dev_2=np.sqrt(criterion["Gaussian_Variance_2"]),
+            weights=(
+                criterion["Gaussian_Proportion_1"],
+                criterion["Gaussian_Proportion_2"],
+            ),
             size=n_samples,
             rng=rng,
         )
-        _negative_data = _data < 0.0
-        _data[_negative_data] = 0.0
-        natural_dor = sum(_negative_data) / len(_data)
-        if enforce_dropout_rate and natural_dor < criterion["DropOutRate"]:
-            correction_dor = criterion["DropOutRate"] - natural_dor
-            if dropout_mode == "uniform":
-                _data *= _dropout_mask(
-                    dropout_rate=correction_dor, size=n_samples, rng=rng
-                )
-            else:
-                _data = exponential_decay_dropout(
-                    data=_data,
-                    b_0=criterion["beta_0"],
-                    b_1=criterion["beta_1"],
-                    rng=rng,
-                )
     elif criterion["Category"] == "ZeroInf":
         __err_message = ["Error: ", "ZeroInf genes cannot be directly sampled"]
         raise DeprecationWarning("".join(__err_message))
-        # _data = __sim_zero_inf(_lambda=criterion["lambda"], size=n_samples, rng=rng)
     else:
         raise ValueError(f"Unknown category `{criterion['Category']}`, aborting")
+
+    _negative_data = _data < 0.0
+    _data[_negative_data] = 0.0
+    natural_dor = sum(_negative_data) / len(_data)
+    if enforce_dropout_rate and natural_dor < criterion["DropOutRate"]:
+        correction_dor = criterion["DropOutRate"] - natural_dor
+        if dropout_mode == "uniform":
+            _data *= _dropout_mask(dropout_rate=correction_dor, size=n_samples, rng=rng)
+        elif dropout_mode == "exponential":
+            _data = exponential_decay_dropout(
+                data=_data,
+                b_0=correction_dor,
+                b_1=criterion["Beta_1"],
+                rng=rng,
+            )
+        elif dropout_mode == "exponential_probas":
+            _data = get_exponential_dropout_probabilities(
+                data=_data,
+                b_0=correction_dor,
+                b_1=criterion["Beta_1"],
+                rng=rng,
+            )
+        elif dropout_mode == "sigmoid":
+            _data = sigmoid_decay_dropout(_data, correction_dor, criterion["Beta_1"])
 
     return pd.Series(data=_data, name=criterion.name)
 
@@ -335,7 +485,8 @@ def _sample_sequential(
     dropout_mode: str = _DEFAULT_DROPOUT_MODE,
 ) -> pd.DataFrame:
     """Simulate samples from a criteria dataframe, sequentially"""
-    rng = rng or _GLOBAL_RNG
+    # rng = rng or _GLOBAL_RNG # bad idea in most cases: This is not thread safe
+    # or more precisely this will generate identical streams
     rng = (
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
     )
@@ -372,6 +523,9 @@ def sample_from_criteria(
         enforce_dropout_rate=enforce_dropout_rate,
         dropout_mode=dropout_mode,
     )
+
+    if criteria.shape[0] < n_threads:
+        n_threads = criteria.shape[0]
 
     _df_splitted_ls: List[pd.DataFrame] = np.array_split(criteria, n_threads)
     with mp.Pool(n_threads) as pool:
@@ -475,7 +629,9 @@ def simulate_bimodal_gene(
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
     )
     if binary_gene.name != criterion.name:
-        raise ValueError("Criterion and gene mismatch")
+        raise ValueError(
+            f"Gene mismatch, data: `{binary_gene.name}`, criterion: `{criterion.name}` "
+        )
     simulated_normalised_expression = pd.Series(
         np.nan, index=binary_gene.index, name=criterion.name, dtype=float
     )
@@ -483,43 +639,22 @@ def simulate_bimodal_gene(
     zero_mask = one_mask.apply(lambda x: not x)
 
     simulated_from_ones = ss.norm.rvs(
-        loc=criterion["gaussian_mean2"],
-        scale=np.sqrt(criterion["gaussian_variance"]),
+        loc=criterion["Gaussian_Mean_2"],
+        scale=np.sqrt(criterion["Gaussian_Variance_1"]),
         size=sum(one_mask),  # change for one_mask.sum() ?
         random_state=rng,
     )
     simulated_from_zeros = ss.norm.rvs(
-        loc=criterion["gaussian_mean1"],
-        scale=np.sqrt(criterion["gaussian_variance"]),
+        loc=criterion["Gaussian_Mean_1"],
+        scale=np.sqrt(criterion["Gaussian_Variance_2"]),
         size=sum(zero_mask),  # change for one_mask.sum() ?
         random_state=rng,
     )
-    # First approach to simulating the DropOutRate,
-    # put all negative simulated values to zero
     simulated_negative = simulated_from_zeros < 0.0
     simulated_from_zeros[simulated_negative] = 0.0
-    natural_dor = sum(simulated_negative) / len(binary_gene)
 
     simulated_normalised_expression[one_mask] = simulated_from_ones
     simulated_normalised_expression[zero_mask] = simulated_from_zeros
-
-    if natural_dor < criterion["DropOutRate"]:
-        # check how many values do we need to put to zero
-        _correction_dor = criterion["DropOutRate"] - natural_dor
-
-        if dropout_mode == "uniform":
-            simulated_normalised_expression *= _dropout_mask(
-                dropout_rate=_correction_dor,
-                size=len(simulated_normalised_expression),
-                rng=rng,
-            )
-        else:
-            simulated_normalised_expression = exponential_decay_dropout(
-                data=simulated_normalised_expression,
-                b_0=criterion["beta_0"],
-                b_1=criterion["beta_1"],
-                rng=rng,
-            )
 
     return simulated_normalised_expression
 
@@ -551,7 +686,9 @@ def simulate_unimodal_gene(
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
     )
     if binary_gene.name != criterion.name:
-        raise ValueError("Criterion and gene mismatch")
+        raise ValueError(
+            f"Gene mismatch, data: `{binary_gene.name}`, criterion: `{criterion.name}` "
+        )
     simulated_normalised_expression = pd.Series(
         0.0, index=binary_gene.index, name=criterion.name, dtype=float
     )
@@ -560,45 +697,31 @@ def simulate_unimodal_gene(
 
     simulated_from_ones = simulate_unimodal_distribution(
         1.0,
-        mean=criterion["mean"],
-        std_dev=np.sqrt(criterion["variance"]),
+        mean=criterion["Mean"],
+        std_dev=np.sqrt(criterion["Variance"]),
         size=sum(one_mask),
         rng=rng,
     )
 
     simulated_from_zeros = simulate_unimodal_distribution(
         0.0,
-        mean=criterion["mean"],
-        std_dev=np.sqrt(criterion["variance"]),
+        mean=criterion["Mean"],
+        std_dev=np.sqrt(criterion["Variance"]),
         size=sum(zero_mask),
         rng=rng,
     )
 
     simulated_negative = simulated_from_zeros < 0.0
     simulated_from_zeros[simulated_negative] = 0.0
-    natural_dor = sum(simulated_negative) / len(binary_gene)
+    # natural_dor = sum(simulated_negative) / len(binary_gene)
 
     simulated_normalised_expression[zero_mask] = simulated_from_zeros
     simulated_normalised_expression[one_mask] = simulated_from_ones
 
-    if natural_dor < criterion["DropOutRate"]:
-        _correction_dor = criterion["DropOutRate"] - natural_dor
-
-        if dropout_mode == "uniform":
-            simulated_normalised_expression *= _dropout_mask(
-                dropout_rate=_correction_dor,
-                size=len(simulated_normalised_expression),
-                rng=rng,
-            )
-        else:
-            simulated_normalised_expression = exponential_decay_dropout(
-                data=simulated_normalised_expression,
-                b_0=criterion["beta_1"],
-                b_1=criterion["beta_1"],
-                rng=rng,
-            )
-
     return simulated_normalised_expression
+
+
+# maybeTODO: refactor, factorize the dropout step to have it here instead of within the cases.
 
 
 def simulate_gene(
@@ -610,7 +733,7 @@ def simulate_gene(
     """Simulate the expression of a gene, using the information provided by
     the criteria dataframe of a profile_binr.scBoolSeq class.
 
-    Parametres
+    Parameters
     ----------
 
     criterion : an entry (row) of the criteria dataframe of a scBoolSeq class,
@@ -627,20 +750,38 @@ def simulate_gene(
         np.random.default_rng(rng) if not isinstance(rng, np.random.Generator) else rng
     )
 
-    if criterion["Category"] == "Discarded":
-        return pd.Series(
+    sampled_data: pd.Series
+    _category = criterion["Category"]
+    if _category == "Discarded":
+        sampled_data = pd.Series(
             np.nan, index=binary_gene.index, name=criterion.name, dtype=float
         )
     elif criterion["Category"] == "Unimodal":
-        return simulate_unimodal_gene(
-            binary_gene, criterion, rng=rng, dropout_mode=dropout_mode
-        )
+        sampled_data = simulate_unimodal_gene(binary_gene, criterion, rng=rng)
     elif criterion["Category"] == "Bimodal":
-        return simulate_bimodal_gene(
-            binary_gene, criterion, rng=rng, dropout_mode=dropout_mode
-        )
+        sampled_data = simulate_bimodal_gene(binary_gene, criterion, rng=rng)
     else:
         raise ValueError(f"Unknown category `{criterion['Category']}`, aborting")
+
+    sample_dor = np.isclose(sampled_data, 0.0).mean()
+    if dropout_mode and (sample_dor < criterion["DropOutRate"]):
+        _correction_dor = criterion["DropOutRate"] - sample_dor
+
+        if dropout_mode == "uniform":
+            sampled_data *= _dropout_mask(
+                dropout_rate=_correction_dor,
+                size=sampled_data.shape[0],
+                rng=rng,
+            )
+        else:
+            sampled_data = exponential_decay_dropout(
+                data=sampled_data,
+                b_0=_correction_dor,
+                b_1=criterion["Beta_1"],
+                rng=rng,
+            )
+
+    return sampled_data
 
 
 def _simulate_subset(
@@ -707,194 +848,55 @@ def biased_simulation_from_binary_state(
         )
 
 
-def __simulate_from_boolean_trajectory(
-    boolean_trajectory_df: pd.DataFrame,
-    criteria_df: pd.DataFrame,
-    n_samples_per_state: SampleCountSpec = 1,
-    n_threads: Optional[int] = None,
-    rng_seed: Optional[int] = None,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    WARNING:  do not use this function, as it need to be debugged.
-
-    Generate `n_samples_per_state`, for each one of the
-    states found in `boolean_trajectory_df`.
-    The biased simulation from the binary state is performed
-    according to `criteria_df`.
-
-    Parameter `n_samples_per_state` is of type SampleCountSpec,
-    defined as :
-    >>> SampleCountSpec = Union[int, range, Iterable[int]]
-    The behaviour changes depending on the type.
-    * If an int is given, all states of the boolean trajectory will
-      be sampled `n_samples_per_state` times.
-    * If a range is given, a random number of samples (within the range)
-      will be created for each observation.
-    * If a list is given
-
-
-    If specified, parameter `rng_seed` allows 100% reproductible results,
-    which means that given the same set of parameters with the given seed
-    will always produce the same pseudo random values.
-
-    The aim of this function is generating synthetic data to be
-    used as an input to STREAM, in order to evaluate the performance
-    of the PROFILE-based simulation method we have developped.
-
-    Returns
-    -------
-        A tuple : (simulated_expression_dataframe, metadata)
-
-    """
-    n_threads = min(abs(n_threads), mp.cpu_count()) if n_threads else mp.cpu_count()
-    # for all runs to obtain the same results the seeds of each run should be fixed
-    _rng = np.random.default_rng(rng_seed)
-    _simulation_seeds = _rng.integers(
-        123, rng_seed, size=len(boolean_trajectory_df.index)
+def _boolean_trajectory_moments(
+    trajectory: pd.DataFrame,
+) -> pd.DataFrame:
+    """Compute scaled (Max abs) moments for a Boolean trajectory"""
+    _boolean_moments: pd.DataFrame = pd.DataFrame(
+        {
+            "Mean": trajectory.mean(),
+            "Variance": trajectory.var(),
+            "DropOutRate": (trajectory == 0).mean(),
+            "Skewness": ss.skew(trajectory),
+            "Kurtosis": ss.kurtosis(trajectory),
+        }
     )
-    # Generate independent random number generators,
-    # with good quality seeds according to :
-    # https://numpy.org/doc/stable/reference/random/parallel.html
-    print("Spawning seeds...", flush=True, end="\t")
-    _seed_sequence_generator = np.random.SeedSequence(rng_seed)
-    child_seeds = _seed_sequence_generator.spawn(n_threads)
-    streams = [np.random.default_rng(s) for s in child_seeds]
-    print("Done", flush=True)
+    # Here the maxabs scaling is necessary in order to have comparable moments.
+    _boolean_moments /= _boolean_moments.abs().max()
+    _has_nans = _boolean_moments.isna().sum(axis=1) > 0
+    _has_zero_variance = np.isclose(_boolean_moments.Variance, 0.0)
+    _all_one = np.isclose(_boolean_moments.Mean, 1.0)
+    _all_zero = np.isclose(_boolean_moments.Mean, 0.0)
+    assert (
+        _has_nans.values == _has_zero_variance
+    ).all(), "Check that input is binary (1 and 0 only, with a numerical dtype)"
+    # Those with zero variance having all ones are assigned the min
+    # skewness because their mass is completely shifted to the right
+    _boolean_moments.loc[(_has_zero_variance & _all_one), "Skewness"] = -1.0
+    # The same reasoning is applied for mass shifted to the left
+    _boolean_moments.loc[(_has_zero_variance & _all_zero), "Skewness"] = 1.0
+    # These zero-variance distributions are the most leptokurtic
+    _boolean_moments.loc[
+        (_has_zero_variance & (_all_one | _all_zero)), "Kurtosis"
+    ] = 1.0
 
-    _n_states = len(boolean_trajectory_df.index)
+    return _boolean_moments
 
-    # multiple dispatch for n_samples_per_state
-    if isinstance(n_samples_per_state, int):
-        sample_sizes = [n_samples_per_state] * _n_states
-    elif isinstance(n_samples_per_state, range):
-        sample_sizes = _rng.integers(
-            n_samples_per_state.start,
-            n_samples_per_state.stop,
-            size=len(boolean_trajectory_df.index),
-        )
-    elif isinstance(n_samples_per_state, Iterable):
-        sample_sizes = list(n_samples_per_state)
-        # check we have enough sample sizes for each one of the observed states
-        if not len(sample_sizes) == _n_states:
-            raise ValueError(
-                " ".join(
-                    [
-                        "`n_samples_per_state` should contain",
-                        f"exactly {_n_states} entries, received {len(sample_sizes)}",
-                    ]
-                )
-            )
-    else:
-        raise TypeError(
-            f"Invalid type `{type(n_samples_per_state)}` for parameter n_samples_per_state"
-        )
 
-    # generate synthetic samples
-    # synthetic_samples = []
-    # for size, rnd_walk_step, _rng_seed in zip(
-    #    sample_sizes, boolean_trajectory_df.iterrows(), _simulation_seeds
-    # ):
-    #    _idx, binary_state = rnd_walk_step
-
-    #    synthetic_samples.append(
-    #        biased_simulation_from_binary_state(
-    #            binary_state.to_frame().T,
-    #            criteria_df,
-    #            n_samples=size,
-    #            n_threads=n_threads,
-    #            seed=_rng_seed,
-    #        )
-    #        .reset_index()
-    #        .rename(columns={"index": "kind"})
-    #    )
-    # match the simulation order :
-
-    print("Align and split boolean frame and criteria...", flush=True, end="\t")
-    criteria_df = criteria_df.loc[boolean_trajectory_df.columns, :]
-    _criteria_ls = np.array_split(criteria_df, n_threads)
-    _binary_ls_no_sample_size = np.array_split(boolean_trajectory_df, n_threads, axis=1)
-    _binary_ls = map(
-        lambda frame, size: pd.concat(size * [frame], ignore_index=False),
-        _binary_ls_no_sample_size,
-        sample_sizes,
-    )
-    print("Done", flush=True)
-    print("Enter multiprocessing pool.", flush=True)
-    with mp.Pool(n_threads) as pool:
-        raw_synthetic_samples = pool.starmap(
-            _simulate_subset, zip(_binary_ls, _criteria_ls, streams)
-        )
-    print(f"Terminate {n_threads} workers.", flush=True)
-
-    # synthetic_samples = [
-    #    sample.reset_index().rename(columns={boolean_trajectory_df.index.name: "kind"})
-    #    for sample in raw_synthetic_samples
-    # ]
-    print("Concatenating all experiments into a single frame...", end="\t", flush=True)
-    synthetic_single_cell_experiment = pd.concat(
-        (
-            sample.reset_index().rename(
-                columns={boolean_trajectory_df.index.name: "kind"}
-            )
-            for sample in raw_synthetic_samples  # merge all samples into a single frame
-        ),
-        axis="rows",
-        ignore_index=True,
-    )
-    print("Done", flush=True)
-
-    print("Transforming index...", sep="\t", flush=True)
-    # create an informative, artificial, and unique index
-    synthetic_single_cell_experiment = synthetic_single_cell_experiment.set_index(
-        map(
-            lambda idx, enum: f"{idx}_{enum}",
-            synthetic_single_cell_experiment.index,
-            list(range(1, len(synthetic_single_cell_experiment.index) + 1)),
-        )
-    )
-    # synthetic_single_cell_experiment = synthetic_single_cell_experiment.set_index(
-    #    synthetic_single_cell_experiment.kind
-    #    + "_"
-    #    + synthetic_single_cell_experiment.index.to_frame()
-    #    .reset_index()
-    #    .index.map(lambda x: f"obs{str(x)}")
-    # )
-    print("Done")
-
-    print("Create colour map...", sep="\t", flush=True)
-    # Create a colour map for different cell types
-    _RGB_values = list("0123456789ABCDEF")
-    color_map = {
-        i: "#" + "".join([_rng.choice(_RGB_values) for j in range(6)])
-        for i in boolean_trajectory_df.index.unique().to_list()
-    }
-    print("Done", flush=True)
-
-    # Create a metadata frame
-    print("Create metadata frame...", sep="\t", flush=True)
-    # cell_colours = (
-    #    synthetic_single_cell_experiment.kind.apply(lambda x: color_map[x])
-    #    .to_frame()
-    #    .rename(columns={"kind": "label_color"})
-    # )
-    # metadata = pd.concat(
-    #    [synthetic_single_cell_experiment.kind, cell_colours], axis="columns"
-    # )
-    # metadata = metadata.rename(columns={"kind": "label"})
-    metadata = (
-        pd.DataFrame(  # index arg should not be necessary, both series have the same ?
-            {
-                "label": synthetic_single_cell_experiment.kind,
-                "label_color": synthetic_single_cell_experiment.kind.apply(
-                    lambda x: color_map[x]
-                ),
-            }
-        )
-    )
-    print("Done", flush=True)
-    # drop the number of activated genes from the synthetic expression frame
-    synthetic_single_cell_experiment = synthetic_single_cell_experiment[
-        synthetic_single_cell_experiment.columns[1:]
-    ]
-
-    return synthetic_single_cell_experiment, metadata
+# def make_boolean_classification_pipeline(
+#    preprocessing_steps: List[sklearn.base.OneToOneFeatureMixin] = [
+#        ("scaler", preproc.MaxAbsScaler())
+#    ],
+#    classifier: sklearn.base.ClassifierMixin = _DEFAULT_BOOL_DIST_CLASSIFIER,
+#    output_type: Optional["str"] = None,
+# ):
+#    """ """
+#    pipeline = Pipeline(
+#        [
+#            *preprocessing_steps,
+#            ("classifier", classifier),
+#        ]
+#    )
+#    if output_type is not None:
+#        pipeline.set_output(transform=output_type)
+#    return pipeline
