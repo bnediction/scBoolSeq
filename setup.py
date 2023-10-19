@@ -5,7 +5,7 @@ from setuptools import find_packages
 from setuptools import setup
 
 NAME = "scBoolSeq"
-VERSION = "0.2.0"
+VERSION = "9999"
 
 setup(
     name=NAME,
