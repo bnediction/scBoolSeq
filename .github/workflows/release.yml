@@ -24,22 +24,22 @@ jobs:
       run: |
         python setup.py sdist bdist_wheel
         twine upload dist/*
-  conda-publish:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - run: sed -i "s:9999:${VERSION//*v/}:" setup.py conda/meta.yaml
-      env:
-          VERSION: ${{ github.ref }}
-    - uses: s-weigand/setup-conda@v1
-    - name: prepare
-      run: |
-        conda install -y anaconda-client conda-build conda-verify
-        conda config --set channel_priority strict
-        conda config --set anaconda_upload yes
-    - name: build
-      run: |
-        cd conda
-        conda build --user colomoto --token $ANACONDA_TOKEN -c conda-forge .
-      env:
-        ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+#  conda-publish:
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v2
+#    - run: sed -i "s:9999:${VERSION//*v/}:" setup.py conda/meta.yaml
+#      env:
+#          VERSION: ${{ github.ref }}
+#    - uses: s-weigand/setup-conda@v1
+#    - name: prepare
+#      run: |
+#        conda install -y anaconda-client conda-build conda-verify
+#        conda config --set channel_priority strict
+#        conda config --set anaconda_upload yes
+#    - name: build
+#      run: |
+#        cd conda
+#        conda build --user colomoto --token $ANACONDA_TOKEN -c conda-forge .
+#      env:
+#        ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
