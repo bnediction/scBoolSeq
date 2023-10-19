@@ -85,14 +85,17 @@ def classify_from_criteria(
     _dip = criteria["Dip"] < _thresholds["Dip"]
     _kurt = criteria["Kurtosis"] < _thresholds["Kurtosis"]
     # possible_bimodal = data[data.columns[_dip & _kurt]]
-    print(
-        f"Computing bimodality index for {(_dip & _kurt).sum()}/{data.shape[1]} genes"
-    )
-    possible_bimodal = data[:, _dip & _kurt]
+    _n_poss_bim = (_dip & _kurt).sum()
+    if _n_poss_bim:
+        print(
+            f"Computing bimodality index for {_n_poss_bim}/{data.shape[1]} genes",
+            flush=True,
+        )
+        possible_bimodal = data[:, _dip & _kurt]
 
-    criteria.loc[_dip & _kurt, "BI"] = np.apply_along_axis(
-        f_bimodal_index, 0, possible_bimodal
-    )
+        criteria.loc[_dip & _kurt, "BI"] = np.apply_along_axis(
+            f_bimodal_index, 0, possible_bimodal
+        )
     _bi = criteria["BI"] > _thresholds["BI"]
 
     category[
