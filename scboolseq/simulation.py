@@ -832,6 +832,7 @@ def biased_simulation_from_binary_state(
     modes = len(child_seeds) * [dropout_mode]
 
     if n_threads > 1:
+        n_threads = min(n_threads, simulation_criteria.shape[0])
         _criteria_ls = np.array_split(simulation_criteria, n_threads)
         _binary_ls = np.array_split(binary_df, n_threads, axis=1)
         with mp.Pool(n_threads) as pool:
