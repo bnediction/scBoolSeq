@@ -5,7 +5,11 @@ scRNA-Seq data binarisation and synthetic generation from Boolean dynamics.
 
 ## Installation
 
-We recommend installing `scBoolSeq` via `conda`, but we provide as well a standard `pip` installation. 
+### Pip
+
+```
+pip install scboolseq
+```
 
 ### Conda
 
@@ -13,18 +17,9 @@ We recommend installing `scBoolSeq` via `conda`, but we provide as well a standa
 conda install -c conda-forge -c colomoto scboolseq
 ```
 
-### Pip
-
-```
-pip install scboolseq
-```
-
 ### Docker
 
-The `scBoolSeq` command can be invoked using the `bnediction/scboolseq` image:
-```
-docker run --rm -it -v $PWD:/data -w /data bnediction/scboolseq scBoolSeq ...
-```
+`scBoolSeq` is included in the [ColoMoTo Docker](http://colomoto.org/notebook) distribution.
 
 ## Usage
 
