@@ -21,21 +21,9 @@ requirements:
     - python
     - scipy
     - pandas
-    - rpy2
-    - toml
-    - tzlocal
-    - r-base
-    - r-bigmemory
-    - r-diptest
-    - r-dosnow
-    - r-dplyr
-    - r-foreach
-    - r-glue
-    - r-magrittr
-    - r-mclust
-    - r-moments
-    - r-tibble
-    - r-tidyr
+    - scikit-learn >=1.2
+    - diptest
+    - statsmodels
 
 about:
   home: https://github.com/bnediction/scboolseq
