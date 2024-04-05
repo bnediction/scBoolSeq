@@ -2,6 +2,7 @@
     Module to simulate gene expression count data
     from learnt criteria.
 """
+
 import warnings
 import functools
 import multiprocessing as mp
@@ -877,9 +878,9 @@ def _boolean_trajectory_moments(
     # The same reasoning is applied for mass shifted to the left
     _boolean_moments.loc[(_has_zero_variance & _all_zero), "Skewness"] = 1.0
     # These zero-variance distributions are the most leptokurtic
-    _boolean_moments.loc[
-        (_has_zero_variance & (_all_one | _all_zero)), "Kurtosis"
-    ] = 1.0
+    _boolean_moments.loc[(_has_zero_variance & (_all_one | _all_zero)), "Kurtosis"] = (
+        1.0
+    )
 
     return _boolean_moments
 

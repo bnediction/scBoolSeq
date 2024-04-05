@@ -94,9 +94,9 @@ def classify_from_criteria(
         )
     _bi = criteria["BI"] > _thresholds["BI"]
 
-    category[
-        criteria.where(_unclassified1 & _bi & _dip & _kurt).dropna().index
-    ] = "Bimodal"
+    category[criteria.where(_unclassified1 & _bi & _dip & _kurt).dropna().index] = (
+        "Bimodal"
+    )
 
     # Zero-Inflated
     if not simulation_criteria:

@@ -42,10 +42,19 @@ __all__ = [
 ]
 
 try:
-    sklearn.set_config(transform_output="pandas")
+    if sklearn.get_config()["transform_output"] != "pandas":
+        warnings.warn(
+            f"\nScikit-learn's transform output is set to `{sklearn.get_config()['transform_output']}`"
+            "\nPlease consider calling"
+            " `sklearn.set_config(transform_output='pandas')`."
+            " to set this option globally."
+            "\nOtherwise use a config context to conserve DataFrame output"
+            "\n>>>with sklearn.config_context(transform_output='default'):"
+            "\n>>>    bin_rna_data = scboolseq.scBoolSeq().fit_transform(log_rna_data)"
+        )
 except Exception as _e:
     warnings.warn(
-        "Could not set option "
+        "Could not query/set option "
         "`sklearn.set_config(transform_output='pandas')`. "
         "The most likely reason why this happened is that an old "
         "version of scikit-learn is installed in your system."
@@ -242,9 +251,9 @@ class GaussianMixtureBinarizer(_BaseBinarizer):
         )
         _probas = list(
             map(
-                lambda _reversed_, _probas_: _probas_[:, [1, 0]]
-                if _reversed_
-                else _probas_,
+                lambda _reversed_, _probas_: (
+                    _probas_[:, [1, 0]] if _reversed_ else _probas_
+                ),
                 self.m1_gt_m2_,
                 _raw_probas,
             )
@@ -380,6 +389,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
         zeroinf_binarizer: str = "zero_or_not",
         zeroes_are: float = np.nan,
         dor_threshold: float = 0.99,
+        amplitude_threshold: float = 10.0,
         half_life_parameter: str = "MeanNZ",
         warm_start: bool = True,
         require_df: bool = True,
@@ -395,6 +405,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
         self.zeroinf_binarizer: str = zeroinf_binarizer
         self.zeroes_are: float = zeroes_are
         self.dor_threshold: float = dor_threshold
+        self.amplitude_threshold: float = amplitude_threshold
         self.half_life_parameter: str = half_life_parameter
         self.warm_start: bool = warm_start
         self.require_df: bool = require_df
@@ -449,7 +460,10 @@ class scBoolSeqBinarizer(_BaseBinarizer):
         if not (self.warm_start and hasattr(self, "criteria_")):
             self.criteria_ = compute_criteria(
                 X,
-                thresholds=dict(DropOutRate=self.dor_threshold),
+                thresholds=dict(
+                    DropOutRate=self.dor_threshold,
+                    AmplitudeDenominator=self.amplitude_threshold,
+                ),
                 simulation_criteria=False,
             )
 
@@ -778,9 +792,9 @@ class scBoolSeqBinarizer(_BaseBinarizer):
                 "DropOutRate"
             ]
             # Overwrite it with the new sorted one
-            sample_criteria.loc[
-                dropout_replacement.index, "DropOutRate"
-            ] = dropout_replacement
+            sample_criteria.loc[dropout_replacement.index, "DropOutRate"] = (
+                dropout_replacement
+            )
 
         # 5# Perform biased sampling from parametric distributions and dropout simulation
         return biased_simulation_from_binary_state(

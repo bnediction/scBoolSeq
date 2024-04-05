@@ -1,4 +1,5 @@
 """ Utility functions. """
+
 import pickle
 import typing
 from time import time
@@ -28,9 +29,9 @@ def parse_data_directory(
         **{
             file.name.replace(file.suffix, "").replace(" ", "_"): pd.read_csv(
                 file.resolve(),
-                sep="\t"
-                if "t" in file.suffix.lower()
-                else ",",  # This adaptation using the file name might be fragile
+                sep=(
+                    "\t" if "t" in file.suffix.lower() else ","
+                ),  # This adaptation using the file name might be fragile
                 **csv_kwargs,
             )
             for file in data_dir.glob(glob_pattern)

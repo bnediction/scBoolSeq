@@ -30,6 +30,7 @@ poetry.lock
 **/.vscode
 **/microsoft*
 **/*.deb
+/**/.*.swp
 
 # R-related files
 **/.R*
