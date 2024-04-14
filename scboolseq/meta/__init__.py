@@ -1,6 +1,5 @@
 """
-scBoolSeq: Linking scRNA-Seq with Boolean Dynamics
-
+scBoolSeq-meta: Define meta-observations from binarised data. 
 author: "Gustavo Magaña López"
 credits: "BNediction ; Institut Curie"
 """
@@ -10,8 +9,8 @@ __author__ = "Gustavo Magaña López"
 __credits__ = "BNeDiction; Institut Curie"
 
 # Packages
-from . import binarization
-from . import meta
+from . import bootstrap
 
-# Main Class
-from .binarization import scBoolSeqBinarizer as scBoolSeq
+# classes and functions
+from .aggregations import CellAggregator
+from .metrics import meta_marker_counter
