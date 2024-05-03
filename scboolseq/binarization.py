@@ -46,10 +46,10 @@ try:
         warnings.warn(
             f"\nScikit-learn's transform output is set to `{sklearn.get_config()['transform_output']}`"
             "\nPlease consider calling"
-            " `sklearn.set_config(transform_output='pandas')`."
+            " `sklearn.set_config(transform_output='pandas')`"
             " to set this option globally."
             "\nOtherwise use a config context to conserve DataFrame output"
-            "\n>>>with sklearn.config_context(transform_output='default'):"
+            "\n>>>with sklearn.config_context(transform_output='pandas'):"
             "\n>>>    bin_rna_data = scboolseq.scBoolSeq().fit_transform(log_rna_data)"
         )
 except Exception as _e:
