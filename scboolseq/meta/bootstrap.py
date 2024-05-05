@@ -32,16 +32,13 @@ def bootstrap(
     statistic: typing.Callable = np.mean,
     B: int = 500,
     alpha=0.05,
+    p=None,
     random_state: typing.Optional[typing.Union[int, np.random.Generator]] = None,
 ) -> ConfInt:
     """Compute a standard bootstrap (reverse percentile) confidence
     interval of level (1-`alpha`) for the given `statistic`,
     using `B` bootstrap realisations."""
-    random_state = (
-        np.random.default_rng(random_state)
-        if not isinstance(random_state, np.random.Generator)
-        else random_state
-    )
+    random_state = np.random.default_rng(random_state)
 
     # check if the vector contains NaNs,
     if reduce(lambda f, g: f or g, np.isnan(x)):
@@ -49,7 +46,10 @@ def bootstrap(
 
     _theta: float = statistic(x)
     _boot_samples: np.array = np.array(
-        [statistic(random_state.choice(x, replace=True, size=len(x))) for i in range(B)]
+        [
+            statistic(random_state.choice(x, replace=True, size=len(x), p=p))
+            for i in range(B)
+        ]
     )
     _boot_dist: np.array = _boot_samples - _theta
     _b = np.quantile(_boot_dist, q=(1 - alpha / 2, alpha / 2))

@@ -332,7 +332,7 @@ class QuantileBinarizer(_BaseBinarizer):
 
     def __init__(
         self,
-        margin_quantile: float = 0.25,
+        margin_quantile: float = 0.05,
         alpha: float = 0.0,
         require_df: bool = False,
     ):
