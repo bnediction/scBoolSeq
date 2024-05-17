@@ -14,12 +14,12 @@ import scipy.optimize as opt
 import numpy as np
 import pandas as pd
 
-
-# from sklearn.pipeline import Pipeline
-# from sklearn import preprocessing as preproc
 # import sklearn
-# from sklearn.ensemble import HistGradientBoostingClassifier
+# from sklearn import preprocessing as preproc
+from sklearn.model_selection import KFold
 from sklearn.neighbors import KNeighborsClassifier
+
+from ._core_utils import slice_dispatcher
 
 # Typing aliases
 RandomWalkGenerator = Union[Iterator[Dict[str, int]], List[Dict[str, int]]]
@@ -528,7 +528,10 @@ def sample_from_criteria(
     if criteria.shape[0] < n_threads:
         n_threads = criteria.shape[0]
 
-    _df_splitted_ls: List[pd.DataFrame] = np.array_split(criteria, n_threads)
+    # _df_splitted_ls: List[pd.DataFrame] = np.array_split(criteria, n_threads)
+    _df_splitted_ls: List[pd.DataFrame] = [
+        criteria.iloc[i, :] for _, i in KFold(n_threads, shuffle=False).split(criteria)
+    ]
     with mp.Pool(n_threads) as pool:
         ret_list = pool.map(_partial_simulation_function, _df_splitted_ls)
 
@@ -824,8 +827,8 @@ def biased_simulation_from_binary_state(
     # match the order
     simulation_criteria = simulation_criteria.loc[binary_df.columns, :]
 
-    # Generate independent random number generators, with good quality seeds
-    # according to :
+    # Generate independent random number generators,
+    # with good quality seeds according to :
     # https://numpy.org/doc/stable/reference/random/parallel.html
     _seed_sequence_generator = np.random.SeedSequence(seed)
     child_seeds = _seed_sequence_generator.spawn(n_threads)
@@ -834,8 +837,14 @@ def biased_simulation_from_binary_state(
 
     if n_threads > 1:
         n_threads = min(n_threads, simulation_criteria.shape[0])
-        _criteria_ls = np.array_split(simulation_criteria, n_threads)
-        _binary_ls = np.array_split(binary_df, n_threads, axis=1)
+        # _bws := by worker slices
+        _bws = [
+            _ws for _, _ws in KFold(n_threads, shuffle=False).split(simulation_criteria)
+        ]
+        # _criteria_ls = np.array_split(simulation_criteria, n_threads)
+        # _binary_ls = np.array_split(binary_df, n_threads, axis=1)
+        _criteria_ls = [simulation_criteria.iloc[_ws, :] for _ws in _bws]
+        _binary_ls = [binary_df.iloc[:, _ws] for _ws in _bws]
         with mp.Pool(n_threads) as pool:
             ret_list = pool.starmap(
                 _simulate_subset, zip(_binary_ls, _criteria_ls, streams, modes)
@@ -854,15 +863,25 @@ def _boolean_trajectory_moments(
     trajectory: pd.DataFrame,
 ) -> pd.DataFrame:
     """Compute scaled (Max abs) moments for a Boolean trajectory"""
-    _boolean_moments: pd.DataFrame = pd.DataFrame(
-        {
-            "Mean": trajectory.mean(),
-            "Variance": trajectory.var(),
-            "DropOutRate": (trajectory == 0).mean(),
-            "Skewness": ss.skew(trajectory),
-            "Kurtosis": ss.kurtosis(trajectory),
-        }
-    )
+    # Here we know that some genes' Boolean values may be highly homogeneous (if not identical
+    # over the whole Boolean trace). So this is expected and there is no need to worry the user
+    # because the precision loss will be manually compensated.
+    # ```
+    # RuntimeWarning: Precision loss occurred in moment calculation due to catastrophic cancellation.
+    # This occurs when the data are nearly identical. Results may be unreliable.
+    # "Skewness": ss.skew(trajectory),
+    # "Kurtosis": ss.kurtosis(trajectory),
+    # ```
+    with warnings.catch_warnings(action="ignore"):
+        _boolean_moments: pd.DataFrame = pd.DataFrame(
+            {
+                "Mean": trajectory.mean(),
+                "Variance": trajectory.var(),
+                "DropOutRate": (trajectory == 0).mean(),
+                "Skewness": ss.skew(trajectory),
+                "Kurtosis": ss.kurtosis(trajectory),
+            }
+        )
     # Here the maxabs scaling is necessary in order to have comparable moments.
     _boolean_moments /= _boolean_moments.abs().max()
     _has_nans = _boolean_moments.isna().sum(axis=1) > 0

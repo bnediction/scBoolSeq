@@ -9,6 +9,7 @@ from pathlib import Path
 
 # third party
 import pandas as pd
+from sklearn.base import config_context
 from sklearn.utils.validation import check_is_fitted
 
 # local imports
@@ -27,6 +28,27 @@ def first_arg_is_path(func: typing.Callable):
             return func(*args, **kwargs)
 
     return path_is_casted
+
+
+def slice_dispatcher(arr: _ArrayOrFrame):
+    """Access the .iloc attr of a pandas.DataFrame so that
+    it can be sliced using integers, like a numpy.ndarray"""
+    if isinstance(arr, pd.DataFrame):
+        return arr.iloc
+    return arr
+
+
+def with_pandas_output(estimator_method: typing.Callable):
+    """Decorator: Wrap an estimator's method to force its
+    execution within a context of transform_output="pandas"."""
+
+    @functools.wraps(estimator_method)
+    def _always_pandas_output(estimator, *args, **kwargs):
+        """Wrap the estimator and fix the `transform_output`"""
+        with config_context(transform_output="pandas"):
+            return estimator_method(estimator, *args, **kwargs)
+
+    return _always_pandas_output
 
 
 def validated_sklearn_transform(transform_method: typing.Callable):

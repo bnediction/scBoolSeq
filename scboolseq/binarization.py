@@ -14,19 +14,24 @@ from sklearn.base import (
     _SetOutputMixin,
     OneToOneFeatureMixin,
 )
+
 from sklearn.mixture import GaussianMixture
+from sklearn.model_selection import KFold
 from sklearn import utils as skutils
 from sklearn.utils.validation import check_is_fitted
 from sklearn.preprocessing import MaxAbsScaler
 from sklearn.neighbors import KNeighborsClassifier
 
-from ._core_utils import validated_sklearn_transform
+from ._core_utils import (
+    validated_sklearn_transform,
+    with_pandas_output,
+    slice_dispatcher,
+)
 from ._exceptions import NotASubsetOfExpectedColumnsError
 from ._scboolseq_core import compute_criteria
 from ._types import _sklearnArrayOrFrameCheck, _ArrayOrFrame, _ArrayOrSeries
 from .simulation import (
     biased_simulation_from_binary_state,
-    #    make_boolean_classification_pipeline,
     _boolean_trajectory_moments,
     _MOMENTS,
 )
@@ -40,26 +45,6 @@ __all__ = [
     "QuantileBinarizer",
     "scBoolSeqBinarizer",
 ]
-
-try:
-    if sklearn.get_config()["transform_output"] != "pandas":
-        warnings.warn(
-            f"\nScikit-learn's transform output is set to `{sklearn.get_config()['transform_output']}`"
-            "\nPlease consider calling"
-            " `sklearn.set_config(transform_output='pandas')`"
-            " to set this option globally."
-            "\nOtherwise use a config context to conserve DataFrame output"
-            "\n>>>with sklearn.config_context(transform_output='pandas'):"
-            "\n>>>    bin_rna_data = scboolseq.scBoolSeq().fit_transform(log_rna_data)"
-        )
-except Exception as _e:
-    warnings.warn(
-        "Could not query/set option "
-        "`sklearn.set_config(transform_output='pandas')`. "
-        "The most likely reason why this happened is that an old "
-        "version of scikit-learn is installed in your system."
-        "To conserve feature names, please update scikit-learn."
-    )
 
 
 class _BaseBinarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
@@ -190,7 +175,6 @@ class GaussianMixtureBinarizer(_BaseBinarizer):
         self.random_state = random_state
         self.require_df: bool = require_df
 
-    # TODO: check how to validate (if necessary) y
     def fit(self, X, y=None):
         """Compute feature-wise Gaussian Mixture for binarization.
         :param: y represents a boolean matrix (same dimensions as X)
@@ -211,18 +195,39 @@ class GaussianMixtureBinarizer(_BaseBinarizer):
             for i in range(X.shape[1])
         ]
 
-        self.gaussian_mixtures_ = list(
-            map(  # Save the trained Gaussian Mixtures
-                lambda _gmm_, _feature_, _mask_: _gmm_.fit(
-                    _feature_[_mask_]  # Subsetting a df yields the correct dimensions
-                    if isinstance(_feature_, pd.DataFrame)
-                    else _feature_[_mask_].reshape(-1, 1)
-                ),
-                _gmms,
-                np.array_split(X, X.shape[1], axis=1),
-                np.array_split(y, y.shape[1], axis=1),
+        ## Old version (which raises a FutureWarning)
+        ## FutureWarning: 'DataFrame.swapaxes' is deprecated and will be removed in a future version.
+        ## Please use 'DataFrame.transpose' instead.
+        ## Apparently, there is no fix for this (links worked as of Fri 17 May 14:29:54 CEST 2024)
+        ## https://github.com/numpy/numpy/issues/24889
+        ## https://stackoverflow.com/questions/77576750/futurewarning-dataframe-swapaxes-is-deprecated-and-will-be-removed-in-a-futur
+        # self.gaussian_mixtures_ = list(
+        #    map(  # Save the trained Gaussian Mixtures
+        #        lambda _gmm_, _feature_, _mask_: _gmm_.fit(
+        #            _feature_[_mask_]  # Subsetting a df yields the correct dimensions
+        #            if isinstance(_feature_, pd.DataFrame)
+        #            else _feature_[_mask_].reshape(-1, 1)
+        #        ),
+        #        _gmms,
+        #        np.array_split(X, X.shape[1], axis=1),
+        #        np.array_split(y, y.shape[1], axis=1)
+        #    )
+        # )
+
+        def _gmm_helper(gmm, feature, mask):
+            """Train a GaussianMixtureModel (gmm) on a single column."""
+            if isinstance(feature, pd.DataFrame):
+                return gmm.fit(feature[mask])
+            return gmm.fit(feature[mask].reshape(-1, 1))
+
+        self.gaussian_mixtures_ = [
+            _gmm_helper(
+                _gmms[i],
+                slice_dispatcher(X)[:, i_col],
+                slice_dispatcher(y)[:, i_col],
             )
-        )
+            for i, (_, i_col) in enumerate(KFold(X.shape[1], shuffle=False).split(X.T))
+        ]
 
         self.means_ = np.concatenate(
             [_gmm.means_.T for _gmm in self.gaussian_mixtures_], axis=0
@@ -238,17 +243,32 @@ class GaussianMixtureBinarizer(_BaseBinarizer):
         """Binarize X according to the probability of
         belonging to each one of the two modes"""
         y = np.full(X.shape, np.nan)
-        _raw_probas = list(
-            map(
-                lambda _gmm_, _feature_: _gmm_.predict_proba(
-                    _feature_.compressed().reshape(-1, 1)
-                    if isinstance(_feature_, np.ma.MaskedArray)
-                    else _feature_
-                ),
-                self.gaussian_mixtures_,
-                np.array_split(X, X.shape[1], axis=1),
+
+        # _raw_probas = list(
+        #    map(
+        #        lambda _gmm_, _feature_: _gmm_.predict_proba(
+        #            _feature_.compressed().reshape(-1, 1)
+        #            if isinstance(_feature_, np.ma.MaskedArray)
+        #            else _feature_
+        #        ),
+        #        self.gaussian_mixtures_,
+        #        np.array_split(X, X.shape[1], axis=1),
+        #    )
+        # )
+        def _maybe_masked_array_proba(gmm, feature):
+            """Fit the GaussianMixtureModel `gmm on the given data array `feature`.
+            Compress the array if it is masked."""
+            if isinstance(feature, np.ma.MaskedArray):
+                return gmm.predict_proba(feature.compressed().reshape(-1, 1))
+            return gmm.predict_proba(feature)
+
+        _raw_probas = [
+            _maybe_masked_array_proba(
+                self.gaussian_mixtures_[i],
+                slice_dispatcher(X)[:, i_col],
             )
-        )
+            for i, (_, i_col) in enumerate(KFold(X.shape[1], shuffle=False).split(X.T))
+        ]
         _probas = list(
             map(
                 lambda _reversed_, _probas_: (
@@ -442,6 +462,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return self
 
+    @with_pandas_output
     def fit(self, X, y=None, simulation=True):
         """Compute feature-wise criteria to classify genes'
         distributions into 4 types:
@@ -611,6 +632,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return self
 
+    @with_pandas_output
     @validated_sklearn_transform
     def transform(self, X: _ArrayOrFrame) -> _ArrayOrFrame:
         """_summary_
@@ -634,6 +656,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return _joint
 
+    @with_pandas_output
     @validated_sklearn_transform
     def inverse_transform(
         self,
