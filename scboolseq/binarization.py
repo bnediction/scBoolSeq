@@ -618,17 +618,19 @@ class scBoolSeqBinarizer(_BaseBinarizer):
             self.kept_genes_: pd.Index = self.criteria_.query(
                 "Category != 'Discarded'"
             ).index
-            self.scaled_moments_: pd.Dataframe = self.criteria_.loc[
-                self.kept_genes_, _MOMENTS
-            ].copy(deep=True)
-            self.scaled_moments_ /= self.scaled_moments_.abs().max()
 
-            self.boolean_category_classifier_.fit(
-                self.scaled_moments_, self.criteria_.loc[self.kept_genes_, "Category"]
-            )
-            self.scaled_moments_.loc[self.kept_genes_, "Category"] = self.criteria_.loc[
-                self.kept_genes_, "Category"
-            ]
+            if len(self.kept_genes_) > 0:
+                self.scaled_moments_: pd.Dataframe = self.criteria_.loc[
+                    self.kept_genes_, _MOMENTS
+                ].copy(deep=True)
+                self.scaled_moments_ /= self.scaled_moments_.abs().max()
+
+                self.boolean_category_classifier_.fit(
+                    self.scaled_moments_, self.criteria_.loc[self.kept_genes_, "Category"]
+                )
+                self.scaled_moments_.loc[self.kept_genes_, "Category"] = self.criteria_.loc[
+                    self.kept_genes_, "Category"
+                ]
 
         return self
 

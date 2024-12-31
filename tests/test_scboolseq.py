@@ -10,6 +10,7 @@ def test_single_bimodal_gene_data():
     scboolseq = scb.scBoolSeq()
     scboolseq.fit(pd_data)
     pd_data_bin = scboolseq.binarize(pd_data)    
+    assert scboolseq.criteria_.iloc[0]['Category'] == 'Bimodal'
     assert set(pd_data_bin['Tcea1']) == {0.0, 1.0}    
 
 def test_single_discarded_gene_data():    
@@ -17,5 +18,6 @@ def test_single_discarded_gene_data():
     scboolseq = scb.scBoolSeq()
     scboolseq.fit(pd_data)
     pd_data_bin = scboolseq.binarize(pd_data)    
-    print(scboolseq.criteria_)
-    assert set(pd_data_bin['Tcea1']) == {}
+    assert scboolseq.criteria_.iloc[0]['Category'] == 'Discarded'
+    assert 0.0 not in pd_data_bin['Tcea1']
+    assert 1.0 not in pd_data_bin['Tcea1']
