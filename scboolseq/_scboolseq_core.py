@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 import statsmodels.api as sm
+import warnings
 from sklearn.mixture import GaussianMixture
 
 from ._types import _ArrayOrFrame, _OptionalDict
@@ -37,9 +38,20 @@ def compute_bimodality_index(data) -> float:
 
 def compute_density_peak(data):
     """Using statsmodels.nonparametric.KDEUnivariate with default parameters"""
+    BW_TYPE = 'normal_reference' # This should be the default bandwidth type.
+    try:
+        bw = sm.nonparametric.bandwidths.select_bandwidth(data, bw=BW_TYPE, kernel=None)
+    except RuntimeError:
+        warnings.warn(
+            "KDE bandwidth computation failed (bandwidth is 0.0); Falling back to NaN.",
+            RuntimeWarning,
+            stacklevel=2
+        )
+        return np.nan
+
     kernel = sm.nonparametric.KDEUnivariate(data)  # data is 1-D vector
     # kernel.fit(bw="silverman") # Tried for debugging, error commes from zero vectors.
-    kernel.fit()
+    kernel.fit(bw=BW_TYPE)
     return kernel.support[np.argmax(kernel.density)]
 
 
