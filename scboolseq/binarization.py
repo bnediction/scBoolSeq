@@ -223,10 +223,10 @@ class GaussianMixtureBinarizer(_BaseBinarizer):
         self.gaussian_mixtures_ = [
             _gmm_helper(
                 _gmms[i],
-                slice_dispatcher(X)[:, i_col],
-                slice_dispatcher(y)[:, i_col],
+                slice_dispatcher(X)[:, np.array([i])],
+                slice_dispatcher(y)[:, np.array([i])],
             )
-            for i, (_, i_col) in enumerate(KFold(X.shape[1], shuffle=False).split(X.T))
+            for i in range(len(_gmms))
         ]
 
         self.means_ = np.concatenate(
@@ -265,9 +265,9 @@ class GaussianMixtureBinarizer(_BaseBinarizer):
         _raw_probas = [
             _maybe_masked_array_proba(
                 self.gaussian_mixtures_[i],
-                slice_dispatcher(X)[:, i_col],
+                slice_dispatcher(X)[:, np.array([i])],
             )
-            for i, (_, i_col) in enumerate(KFold(X.shape[1], shuffle=False).split(X.T))
+            for i in range(len(self.gaussian_mixtures_))
         ]
         _probas = list(
             map(
@@ -618,17 +618,19 @@ class scBoolSeqBinarizer(_BaseBinarizer):
             self.kept_genes_: pd.Index = self.criteria_.query(
                 "Category != 'Discarded'"
             ).index
-            self.scaled_moments_: pd.Dataframe = self.criteria_.loc[
-                self.kept_genes_, _MOMENTS
-            ].copy(deep=True)
-            self.scaled_moments_ /= self.scaled_moments_.abs().max()
 
-            self.boolean_category_classifier_.fit(
-                self.scaled_moments_, self.criteria_.loc[self.kept_genes_, "Category"]
-            )
-            self.scaled_moments_.loc[self.kept_genes_, "Category"] = self.criteria_.loc[
-                self.kept_genes_, "Category"
-            ]
+            if len(self.kept_genes_) > 0:
+                self.scaled_moments_: pd.Dataframe = self.criteria_.loc[
+                    self.kept_genes_, _MOMENTS
+                ].copy(deep=True)
+                self.scaled_moments_ /= self.scaled_moments_.abs().max()
+
+                self.boolean_category_classifier_.fit(
+                    self.scaled_moments_, self.criteria_.loc[self.kept_genes_, "Category"]
+                )
+                self.scaled_moments_.loc[self.kept_genes_, "Category"] = self.criteria_.loc[
+                    self.kept_genes_, "Category"
+                ]
 
         return self
 
