@@ -21,7 +21,7 @@ requirements:
     - python
     - scipy
     - pandas
-    - scikit-learn >=1.2
+    - scikit-learn >=1.6
     - diptest
     - statsmodels
 

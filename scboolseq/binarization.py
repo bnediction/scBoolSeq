@@ -18,7 +18,7 @@ from sklearn.base import (
 from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import KFold
 from sklearn import utils as skutils
-from sklearn.utils.validation import check_is_fitted
+from sklearn.utils.validation import check_is_fitted, validate_data
 from sklearn.preprocessing import MaxAbsScaler
 from sklearn.neighbors import KNeighborsClassifier
 
@@ -58,7 +58,7 @@ class _BaseBinarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         validate_separately: bool = False,
         **check_params,
     ):
-        """Perform additional checks when calling BaseEstimator._validate_data"""
+        """Perform additional checks on top of sklearn.utils.validation.validate_data"""
         _require_df = getattr(self, "require_df", False)
         if _require_df:
             if not isinstance(X, pd.DataFrame):
@@ -87,7 +87,7 @@ class _BaseBinarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         else:
             # perhaps it is better to take this out of the else
             # and deal with column subsetting in an outer part.
-            _validated = super()._validate_data(
+            _validated = validate_data(self,
                 X=X,
                 y=y,
                 reset=reset,

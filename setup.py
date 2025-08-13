@@ -27,7 +27,7 @@ setup(
     install_requires=[
         "pandas",
         "diptest",
-        "scikit-learn>=1.2.0",# should include numpy and scipy
+        "scikit-learn>=1.6.0",# should include numpy and scipy
         "statsmodels"
     ],
 )
