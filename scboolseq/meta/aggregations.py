@@ -18,7 +18,7 @@ def boolean_to_arithmetic(df: _Frame) -> _Frame:
                | -1  if x == 0
         f(x) = | 0   if x is np.nan
                | 1   if x == 1
-               \ 
+               /
     """
     return df.replace(0, -1).fillna(0)
 
@@ -29,7 +29,7 @@ def arithmetic_to_boolean(df: _Frame) -> _Frame:
                | -1  if x == 0
         f(x) = | 0   if x is np.nan
                | 1   if x == 1
-               \ 
+               /
     """
     return df.replace(0, np.nan).replace(-1, 0)
 
@@ -81,7 +81,7 @@ class CellAggregator:
                | -1  if x == 0
         f(x) = | 0   if x is np.nan
                | 1   if x == 1
-               \ 
+               /
         This returns a dictionnary.
         """
         return {
