@@ -462,7 +462,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return self
 
-    @with_pandas_output
+    #@with_pandas_output
     def fit(self, X, y=None, simulation=True):
         """Compute feature-wise criteria to classify genes'
         distributions into 4 types:
@@ -634,7 +634,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return self
 
-    @with_pandas_output
+    #@with_pandas_output
     @validated_sklearn_transform
     def transform(self, X: _ArrayOrFrame) -> _ArrayOrFrame:
         """_summary_
@@ -658,7 +658,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return _joint
 
-    @with_pandas_output
+    #@with_pandas_output
     @validated_sklearn_transform
     def inverse_transform(
         self,
