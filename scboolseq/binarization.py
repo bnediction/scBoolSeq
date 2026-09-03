@@ -1,5 +1,7 @@
 """ Binarization suite following scikit-learn's transformer API"""
 
+from collections import Counter
+import math
 import typing
 import warnings
 
@@ -785,16 +787,23 @@ class scBoolSeqBinarizer(_BaseBinarizer):
         # 3# Match Boolean genes to those of the reference
         ##  by-category, sorted by descending variance, pick the closest match
         ##  and then exclude it from the candidate list (bijective matching).
-        taken = pd.Index([], dtype="object")
         best_match = pd.Series()
         # for category in by_cat_distances:
         for category, frame in boolean_trace_criteria.groupby("Category"):
             # for gene, _dists in by_cat_distances[category].iterrows():
             _dists = by_category_distances[category]
+            _ref_genes = _dists.columns
+            n_dupl = 1
+            if frame.index.size > _ref_genes.size:
+                warnings.warn(f"Reference has less {category} genes than data frame. References genes will be used more than once.")
+                n_dupl = int(math.ceil(frame.index.size / _ref_genes.size))
+            c = Counter()
             for gene in frame.sort_values(by="Variance", ascending=False).index:
-                _ibm = _dists.loc[gene, _dists.columns.difference(taken)].idxmin()
+                _ibm = _dists.loc[gene, _ref_genes].idxmin()
                 best_match[gene] = _ibm
-                taken = taken.append(pd.Index([_ibm]))
+                c[_ibm] += 1
+                if c[_ibm] >= n_dupl:
+                    _ref_genes = _ref_genes.difference([_ibm])
 
         sample_criteria: pd.DataFrame = (
             self.simulation_criteria_.loc[best_match, :].copy(deep=True)
