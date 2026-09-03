@@ -1,4 +1,4 @@
-"""Core utils used to reduce boilerplate 
+"""Core utils used to reduce boilerplate
 within the scBoolSeq codebase.
 These are not intended to be called directly."""
 

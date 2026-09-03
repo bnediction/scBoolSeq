@@ -1,6 +1,6 @@
 """
-    Module to simulate gene expression count data
-    from learnt criteria.
+Module to simulate gene expression count data
+from learnt criteria.
 """
 
 import warnings

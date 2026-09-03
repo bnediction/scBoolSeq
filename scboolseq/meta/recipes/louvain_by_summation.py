@@ -1,5 +1,5 @@
-""" scBoolSeq's first recipe: 
-  * Optimise meta observations to distinguish louvain clusters.
+"""scBoolSeq's first recipe:
+* Optimise meta observations to distinguish louvain clusters.
 """
 
 import pandas as pd

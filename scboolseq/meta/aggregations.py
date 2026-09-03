@@ -13,23 +13,23 @@ _Groups: TypeAlias = Union[_GroupBy, _GroupDict]
 
 
 def boolean_to_arithmetic(df: _Frame) -> _Frame:
-    """ Perform (by group) the mapping 
-               /
-               | -1  if x == 0
-        f(x) = | 0   if x is np.nan
-               | 1   if x == 1
-               /
+    """Perform (by group) the mapping
+           /
+           | -1  if x == 0
+    f(x) = | 0   if x is np.nan
+           | 1   if x == 1
+           /
     """
     return df.replace(0, -1).fillna(0)
 
 
 def arithmetic_to_boolean(df: _Frame) -> _Frame:
-    """ Perform (by group) the mapping 
-               /
-               | -1  if x == 0
-        f(x) = | 0   if x is np.nan
-               | 1   if x == 1
-               /
+    """Perform (by group) the mapping
+           /
+           | -1  if x == 0
+    f(x) = | 0   if x is np.nan
+           | 1   if x == 1
+           /
     """
     return df.replace(0, np.nan).replace(-1, 0)
 
@@ -76,7 +76,7 @@ class CellAggregator:
 
     @property
     def _arithmetic_map(self):
-        """ Perform (by group) the mapping 
+        """Perform (by group) the mapping
                /
                | -1  if x == 0
         f(x) = | 0   if x is np.nan

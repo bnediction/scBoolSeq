@@ -1,4 +1,4 @@
-""" Custom types """
+"""Custom types"""
 
 # STDLIB
 import typing

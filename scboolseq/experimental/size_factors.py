@@ -1,10 +1,10 @@
-""" Size-factor estimation for synthetic scRNA-seq data from Boolean Traces.
+"""Size-factor estimation for synthetic scRNA-seq data from Boolean Traces.
 
 This is an experimental module which complements the generation of
-scRNA-seq using scBoolSeq (see below for reference). 
+scRNA-seq using scBoolSeq (see below for reference).
 
 The idea is to compute cell-wise criteria and to build a regression
-model which can correctly estimate size factors (used for 
+model which can correctly estimate size factors (used for
 normalisation in standard scRNA-seq analysis pipelines) in order to
 obtain "raw counts" from the simulated log-transformed scRNA-seq data.
 
@@ -21,7 +21,7 @@ Credits: Institut Curie, BNeDiction
  Andrei Zinovyev
  Loïc Paulevé
 
-https://doi.org/10.1101/2023.10.23.563518 
+https://doi.org/10.1101/2023.10.23.563518
 https://www.biorxiv.org/content/10.1101/2023.10.23.563518v1
 """
 
@@ -33,7 +33,6 @@ from sklearn.base import (
     _SetOutputMixin,
     RegressorMixin,
 )
-
 
 ## Basic numerical
 import sklearn

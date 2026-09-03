@@ -1,4 +1,4 @@
-""" Binarization suite following scikit-learn's transformer API"""
+"""Binarization suite following scikit-learn's transformer API"""
 
 from collections import Counter
 import math
@@ -37,7 +37,6 @@ from .simulation import (
     _boolean_trajectory_moments,
     _MOMENTS,
 )
-
 
 __all__ = [
     "NullBinarizer",
@@ -89,7 +88,8 @@ class _BaseBinarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         else:
             # perhaps it is better to take this out of the else
             # and deal with column subsetting in an outer part.
-            _validated = validate_data(self,
+            _validated = validate_data(
+                self,
                 X=X,
                 y=y,
                 reset=reset,
@@ -464,7 +464,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return self
 
-    #@with_pandas_output
+    # @with_pandas_output
     def fit(self, X, y=None, simulation=True):
         """Compute feature-wise criteria to classify genes'
         distributions into 4 types:
@@ -628,15 +628,16 @@ class scBoolSeqBinarizer(_BaseBinarizer):
                 self.scaled_moments_ /= self.scaled_moments_.abs().max()
 
                 self.boolean_category_classifier_.fit(
-                    self.scaled_moments_, self.criteria_.loc[self.kept_genes_, "Category"]
+                    self.scaled_moments_,
+                    self.criteria_.loc[self.kept_genes_, "Category"],
                 )
-                self.scaled_moments_.loc[self.kept_genes_, "Category"] = self.criteria_.loc[
-                    self.kept_genes_, "Category"
-                ]
+                self.scaled_moments_.loc[self.kept_genes_, "Category"] = (
+                    self.criteria_.loc[self.kept_genes_, "Category"]
+                )
 
         return self
 
-    #@with_pandas_output
+    # @with_pandas_output
     @validated_sklearn_transform
     def transform(self, X: _ArrayOrFrame) -> _ArrayOrFrame:
         """_summary_
@@ -660,7 +661,7 @@ class scBoolSeqBinarizer(_BaseBinarizer):
 
         return _joint
 
-    #@with_pandas_output
+    # @with_pandas_output
     @validated_sklearn_transform
     def inverse_transform(
         self,
@@ -795,7 +796,9 @@ class scBoolSeqBinarizer(_BaseBinarizer):
             _ref_genes = _dists.columns
             n_dupl = 1
             if frame.index.size > _ref_genes.size:
-                warnings.warn(f"Reference has less {category} genes than data frame. References genes will be used more than once.")
+                warnings.warn(
+                    f"Reference has less {category} genes than data frame. References genes will be used more than once."
+                )
                 n_dupl = int(math.ceil(frame.index.size / _ref_genes.size))
             c = Counter()
             for gene in frame.sort_values(by="Variance", ascending=False).index:

@@ -5,7 +5,7 @@ author: "Gustavo Magaña López"
 credits: "BNediction ; Institut Curie"
 """
 
-__version__ = "0.2.0"
+__version__ = "2.3.4"
 __author__ = "Gustavo Magaña López"
 __credits__ = "BNeDiction; Institut Curie"
 

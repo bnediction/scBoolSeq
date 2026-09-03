@@ -1,4 +1,4 @@
-"""Custom exception types to yield more informative error messages. """
+"""Custom exception types to yield more informative error messages."""
 
 
 class NotASubsetOfExpectedColumnsError(ValueError):

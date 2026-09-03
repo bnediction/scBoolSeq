@@ -1,4 +1,4 @@
-""" Utility functions. """
+"""Utility functions."""
 
 import pickle
 import typing

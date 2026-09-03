@@ -1,5 +1,5 @@
 """
-scBoolSeq-meta: Define meta-observations from binarised data. 
+scBoolSeq-meta: Define meta-observations from binarised data.
 author: "Gustavo Magaña López"
 credits: "BNediction ; Institut Curie"
 """
